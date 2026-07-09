@@ -11,8 +11,9 @@ add_executable(hf-gateway src/main.cpp)
 
 if(WIN32)
   target_link_libraries(hf-gateway ws2_32 ole32)
-  # exe singolo senza DLL di runtime
-  target_link_options(hf-gateway PRIVATE -static -static-libgcc -static-libstdc++)
+  # exe singolo senza DLL di runtime (l'ordine dei flag conta con MinGW:
+  # -static puro senza i due seguenti puo' fallire il link di winpthread)
+  target_link_options(hf-gateway PRIVATE -static-libgcc -static-libstdc++ -static)
 elseif(APPLE)
   target_link_libraries(hf-gateway
     "-framework CoreFoundation" "-framework CoreAudio" "-framework AudioToolbox"
