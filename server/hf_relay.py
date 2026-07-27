@@ -32,7 +32,10 @@ F_AUDIO, F_PING, F_PONG, F_REGISTER, F_PEERUP = 0, 1, 2, 3, 4
 # dell'audio perche' fuori dalla rete locale non c'e' modo di aprire una
 # connessione diretta verso il PC della radio (NAT dell'operatore).
 F_CAT_REQ, F_CAT_RSP = 5, 6
-FORWARDED = (F_AUDIO, F_CAT_REQ, F_CAT_RSP)
+# 7: audio che il telefono vuole trasmettere, diretto al PC della radio.
+# Senza inoltrarlo la radio andrebbe in trasmissione senza modulazione.
+F_TX_AUDIO = 7
+FORWARDED = (F_AUDIO, F_CAT_REQ, F_CAT_RSP, F_TX_AUDIO)
 
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 5555
 CLIENT_TIMEOUT = 15.0   # s senza pacchetti -> client rimosso

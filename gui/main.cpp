@@ -123,7 +123,9 @@ protected:
     }
     qint64 writeData(const char*, qint64) override { return 0; }
 private:
-    static constexpr int kMaxBytes = 48000;   // ~500 ms a 48 kHz int16
+    // 2 s: assorbe il jitter della rete senza accumulare ritardo. Il telefono
+    // manda l'audio a tempo reale, quindi la coda resta sempre corta.
+    static constexpr int kMaxBytes = 192000;
     mutable QMutex m_mx;
     QByteArray m_buf;
     qint64 m_lastMs {0};
