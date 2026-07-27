@@ -1,0 +1,66 @@
+HF GATEWAY — audio della radio verso Decodium Mobile
+====================================================
+
+Manda l'audio ricevuto dalla radio (CODEC USB del rig) al telefono, che lo
+decodifica e lo fa ascoltare. Non serve il cavo OTG.
+
+Questa cartella e' autonoma: si copia dove si vuole (anche su chiavetta) e
+funziona su Windows senza installare Qt. Si avvia con HF-Gateway.exe.
+
+
+PRIMA COSA DA IMPOSTARE
+-----------------------
+"Audio della radio": scegliere l'ingresso del rig, tipicamente
+   Microfono (2- USB Audio CODEC )
+Se il livello resta a zero mentre la radio riceve, e' sbagliato questo.
+
+
+LE TRE MODALITA'
+----------------
+1) LAN diretta — il telefono e' sulla stessa rete WiFi
+   Host: l'indirizzo IP del telefono (es. 192.168.1.146)
+   Sul telefono: Setup > AUDIO > Collegamento = LAN, poi "Ricevi".
+
+2) Relay + stanza — il telefono e' ovunque, anche su dati mobili
+   Host: community.ft2.it     Stanza: un codice a scelta, uguale sui due lati
+   Sul telefono: Collegamento = Relay, stesso host e stessa stanza.
+   E' l'unica modalita' che funziona sempre: PC e telefono escono entrambi
+   verso il relay, quindi non c'e' nessun NAT da bucare.
+
+3) Il telefono chiama casa — DynDNS con porta inoltrata sul router
+   Host: non serve (e' il telefono a chiamare).
+   Va inoltrata la porta UDP (default 5555) verso questo PC.
+   Sul telefono: Collegamento = Casa, con il tuo nome DynDNS.
+   Appena il telefono si registra, l'audio parte verso di lui; se sparisce
+   per 20 secondi si torna in attesa.
+
+Perche' tre modalita': quando il telefono e' su dati mobili sta dietro il NAT
+dell'operatore e NON e' raggiungibile dall'esterno, qualunque indirizzo si
+scriva. O si passa dal relay, o e' il telefono a chiamare casa.
+
+
+VERIFICA CHE FUNZIONI
+---------------------
+- Sul PC: la barra "livello" si muove quando la radio riceve.
+- Sul telefono: Setup > AUDIO mostra "ricevuti N pacchetti audio dal PC",
+  con N che sale di circa 100 al secondo.
+- Poi devono comparire le decodifiche.
+
+Diagnostica ingressi audio (da prompt dei comandi):
+   HF-Gateway.exe --devices
+
+
+CARTELLA server\
+----------------
+Serve SOLO per la modalita' Relay, e va su un server con IP pubblico (non su
+questo PC): hf_relay.py accoppia due client che entrano nella stessa stanza.
+   python3 hf_relay.py 5555
+   (avvio automatico: hf-relay.service per systemd)
+Se si usa community.ft2.it il relay e' gia' attivo e non serve fare nulla.
+
+
+SUL FILO
+--------
+Protocollo HFGW v1: UDP, header 22 byte big-endian
+   "HFGW" | versione | flag | seq | t_ms | rate
+seguito da PCM int16 mono 48 kHz, 10 ms per pacchetto (~770 kbit/s).

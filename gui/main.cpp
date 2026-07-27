@@ -20,6 +20,7 @@
 #include <QAudioSource>
 #include <QComboBox>
 #include <QDateTime>
+#include <QEventLoop>
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QHostInfo>
@@ -382,6 +383,36 @@ int main(int argc, char** argv)
         for (QAudioDevice const& d : ins) out << "  " << d.description() << "\n";
         out.flush();
         return ins.isEmpty() ? 2 : 0;
+    }
+
+    // --selftest: apre davvero l'ingresso e cattura mezzo secondo. Elencare i
+    // dispositivi non basta a dire che una copia distribuita funziona: la
+    // cattura carica altre librerie del backend, ed e' li' che si scopre se
+    // manca qualcosa.
+    if (app.arguments().contains(QStringLiteral("--selftest"))) {
+        QTextStream out(stdout);
+        QList<QAudioDevice> const ins = QMediaDevices::audioInputs();
+        if (ins.isEmpty()) { out << "nessun ingresso audio\n"; out.flush(); return 2; }
+        QAudioFormat fmt;
+        fmt.setSampleRate(kRate); fmt.setChannelCount(1); fmt.setSampleFormat(QAudioFormat::Int16);
+        int idx = 0;
+        for (int i = 0; i < ins.size(); ++i)
+            if (ins[i].description().contains(QStringLiteral("USB Audio CODEC"))) { idx = i; break; }
+        out << "apro: " << ins[idx].description() << "\n";
+        if (!ins[idx].isFormatSupported(fmt)) { out << "formato 48k mono 16bit non supportato\n"; out.flush(); return 3; }
+        QAudioSource src(ins[idx], fmt);
+        QIODevice* io = src.start();
+        if (!io) { out << "start() fallito\n"; out.flush(); return 4; }
+        qint64 total = 0;
+        QEventLoop loop;
+        QObject::connect(io, &QIODevice::readyRead, [&] { total += io->readAll().size(); });
+        QTimer::singleShot(500, &loop, &QEventLoop::quit);
+        loop.exec();
+        src.stop();
+        out << "catturati " << total << " byte in 0,5 s (attesi ~48000)\n";
+        out << (total > 8000 ? "CATTURA OK\n" : "CATTURA INSUFFICIENTE\n");
+        out.flush();
+        return total > 8000 ? 0 : 5;
     }
 
     Client w;
