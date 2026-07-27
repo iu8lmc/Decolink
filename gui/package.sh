@@ -2,7 +2,7 @@
 # Crea il pacchetto autonomo di HF Gateway (cartella copiabile su qualsiasi PC
 # Windows, senza Qt installato) e VERIFICA che funzioni con un ambiente pulito.
 #
-#   bash gui/package.sh            -> dist/HF-Gateway
+#   bash gui/package.sh            -> dist/Decolink
 #
 # Perche' la verifica e' dentro lo script: provando il pacchetto da una shell
 # che ha MSYS2 nel PATH sembra funzionare anche se mancano delle librerie,
@@ -13,16 +13,16 @@ set -e
 
 MINGW=/c/msys64/mingw64
 SRC=/c/hf-gateway/gui
-OUT=/c/hf-gateway/dist/HF-Gateway
+OUT=/c/hf-gateway/dist/Decolink
 
-[ -f "$SRC/build/hfgw-client.exe" ] || { echo "manca build/hfgw-client.exe: esegui prima gui/build.bat"; exit 1; }
+[ -f "$SRC/build/decolink.exe" ] || { echo "manca build/decolink.exe: esegui prima gui/build.bat"; exit 1; }
 
 rm -rf "$OUT"; mkdir -p "$OUT"
-cp "$SRC/build/hfgw-client.exe" "$OUT/HF-Gateway.exe"
+cp "$SRC/build/decolink.exe" "$OUT/Decolink.exe"
 cp "$SRC/hfgw.ico" "$OUT/"
 [ -f "$SRC/LEGGIMI.txt" ] && cp "$SRC/LEGGIMI.txt" "$OUT/"
 
-"$MINGW/bin/windeployqt6.exe" --release --no-translations --no-system-d3d-compiler --no-opengl-sw "$OUT/HF-Gateway.exe" >/dev/null
+"$MINGW/bin/windeployqt6.exe" --release --no-translations --no-system-d3d-compiler --no-opengl-sw "$OUT/Decolink.exe" >/dev/null
 
 # windeployqt NON copia il runtime del compilatore: senza questi l'exe non
 # parte proprio (errore di libreria prima ancora del main).
@@ -39,7 +39,7 @@ done
 # vuoto. Per questo non si sfoltiscono.
 cd "$OUT"
 for i in $(seq 1 10); do
-  refs=$(for f in HF-Gateway.exe *.dll */*.dll; do ldd "$f" 2>/dev/null; done)
+  refs=$(for f in Decolink.exe *.dll */*.dll; do ldd "$f" 2>/dev/null; done)
   names=$( { echo "$refs" | grep -io "/mingw64/bin/[a-z0-9_.+-]*\.dll" | xargs -r -n1 basename
              echo "$refs" | grep -i "not found" | awk '{print $1}'; }            | sort -u | grep -vi "^api-ms-win" || true)
   n=0
@@ -57,7 +57,7 @@ cp /c/hf-gateway/server/hf-relay.service "$OUT/server/" 2>/dev/null || true
 # ---- verifica in ambiente pulito (senza MSYS2 nel PATH) ----
 echo "verifica con PATH ripulito..."
 set +e
-out=$(powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$SRC/verify.ps1")" -Exe "$(cygpath -w "$OUT/HF-Gateway.exe")" 2>&1)
+out=$(powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$SRC/verify.ps1")" -Exe "$(cygpath -w "$OUT/Decolink.exe")" 2>&1)
 rc=$?
 set -e
 echo "$out" | sed 's/^/    /'

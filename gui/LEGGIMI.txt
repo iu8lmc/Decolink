@@ -1,11 +1,11 @@
-HF GATEWAY — audio della radio verso Decodium Mobile
-====================================================
+DECOLINK — la radio su Decodium Mobile
+======================================
 
 Manda l'audio ricevuto dalla radio (CODEC USB del rig) al telefono, che lo
 decodifica e lo fa ascoltare. Non serve il cavo OTG.
 
 Questa cartella e' autonoma: si copia dove si vuole (anche su chiavetta) e
-funziona su Windows senza installare Qt. Si avvia con HF-Gateway.exe.
+funziona su Windows senza installare Qt. Si avvia con Decolink.exe.
 
 
 PRIMA COSA DA IMPOSTARE
@@ -46,8 +46,22 @@ VERIFICA CHE FUNZIONI
   con N che sale di circa 100 al secondo.
 - Poi devono comparire le decodifiche.
 
-Diagnostica ingressi audio (da prompt dei comandi):
-   HF-Gateway.exe --devices
+CAT — CONTROLLO DELLA RADIO
+---------------------------
+Riquadro "CAT": scegliere la porta seriale del rig (sul FT-991 e' la porta
+Enhanced, tipicamente COM5 a 38400) e spuntare "Servi il CAT al telefono".
+Da quel momento Decolink offre al telefono lo stesso servizio di rigctld:
+non serve piu' installare Hamlib ne' lanciarlo a parte.
+Sul telefono, scheda TRASMETTI > Connetti (host = IP di questo PC, porta 4532).
+
+Attenzione: se rigctld e' gia' in esecuzione tiene occupata sia la porta
+seriale sia la 4532; va chiuso.
+
+Diagnostica (da prompt dei comandi):
+   Decolink.exe --devices              elenca gli ingressi audio
+   Decolink.exe --selftest             cattura mezzo secondo di audio
+   Decolink.exe --cattest COM5 38400   legge frequenza e modo dal rig
+   Decolink.exe --cat COM5 38400       avvia gia' col CAT acceso
 
 
 CARTELLA server\

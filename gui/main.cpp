@@ -1,4 +1,5 @@
-// hfgw-client — client audio HF con finestra, protocollo HFGW v1.
+// Decolink — collega la radio a Decodium Mobile: audio RX (e, con il CAT,
+// il controllo del rig) su rete. Protocollo HFGW v1.
 //
 // Manda l'audio RX della radio (CODEC USB del rig) a Decodium Mobile, in tre
 // modi selezionabili:
@@ -15,6 +16,7 @@
 // seguito da PCM int16 mono little-endian, 10 ms per pacchetto.
 
 #include <QApplication>
+#include <QCheckBox>
 #include <QAudioDevice>
 #include <QAudioFormat>
 #include <QAudioSource>
@@ -31,13 +33,19 @@
 #include <QMediaDevices>
 #include <QProgressBar>
 #include <QPushButton>
+#include <QSerialPort>
+#include <QSerialPortInfo>
 #include <QSettings>
 #include <QSpinBox>
+#include <QTcpServer>
+#include <QTcpSocket>
 #include <QTextStream>
 #include <QTimer>
 #include <QUdpSocket>
 #include <QVBoxLayout>
 #include <QWidget>
+
+#include <QElapsedTimer>
 
 #include <cmath>
 
@@ -47,7 +55,8 @@ constexpr int kRate      = 48000;
 constexpr int kFrame     = kRate / 100;   // 480 campioni = 10 ms
 constexpr int kHdrSize   = 22;
 constexpr quint8 kFlagAudio = 0, kFlagPing = 1, kFlagPong = 2,
-                 kFlagRegister = 3, kFlagPeerUp = 4;
+                 kFlagRegister = 3, kFlagPeerUp = 4,
+                 kFlagCatReq = 5, kFlagCatRsp = 6;   // comandi CAT sullo stesso canale
 
 void putU32(char* p, quint32 v) { p[0]=char(v>>24); p[1]=char(v>>16); p[2]=char(v>>8); p[3]=char(v); }
 void putU64(char* p, quint64 v) { for (int i = 0; i < 8; ++i) p[i] = char(v >> (56 - 8*i)); }
@@ -70,13 +79,144 @@ enum Mode { ModeLan = 0, ModeRelay = 1, ModeListen = 2 };
 
 } // namespace
 
+
+// Controllo del rig sulla seriale, in dialetto Yaesu (comandi terminati da ';').
+// All'esterno parla il protocollo di rigctld (netrigctl), che Decodium Mobile
+// gia' conosce: cosi' il telefono non cambia, e sul PC basta questo programma
+// invece di installare Hamlib e lanciare rigctld a mano.
+class CatRig : public QObject
+{
+    Q_OBJECT
+public:
+    explicit CatRig(QObject* parent = nullptr) : QObject(parent) {}
+
+    bool open(const QString& portName, int baud)
+    {
+        close();
+        m_port = new QSerialPort(portName, this);
+        m_port->setBaudRate(baud);
+        m_port->setDataBits(QSerialPort::Data8);
+        m_port->setParity(QSerialPort::NoParity);
+        m_port->setStopBits(QSerialPort::OneStop);
+        m_port->setFlowControl(QSerialPort::NoFlowControl);
+        if (!m_port->open(QIODevice::ReadWrite)) {
+            m_error = m_port->errorString();
+            m_port->deleteLater(); m_port = nullptr;
+            return false;
+        }
+        m_port->setDataTerminalReady(true);
+        m_port->setRequestToSend(false);
+        return true;
+    }
+
+    void close()
+    {
+        if (m_port) { m_port->close(); m_port->deleteLater(); m_port = nullptr; }
+    }
+
+    bool isOpen() const { return m_port && m_port->isOpen(); }
+    QString error() const { return m_error; }
+
+    // Esegue una riga di comando netrigctl e restituisce la risposta da mandare
+    // indietro. Il telefono usa solo questi verbi: f, m, F <hz>, T <0|1>.
+    QString handle(const QString& line)
+    {
+        QString const cmd = line.trimmed();
+        if (cmd.isEmpty()) return QString();
+        if (cmd == QLatin1String("f")) {
+            qint64 const hz = readFreq();
+            return hz > 0 ? QString::number(hz) + "\n" : QStringLiteral("RPRT -1\n");
+        }
+        if (cmd == QLatin1String("m")) {
+            QString const md = readMode();
+            return md.isEmpty() ? QStringLiteral("RPRT -1\n") : md + "\n3000\n";
+        }
+        if (cmd.startsWith(QLatin1String("F "))) {
+            bool ok = false;
+            qint64 const hz = cmd.mid(2).trimmed().toLongLong(&ok);
+            if (!ok || hz <= 0) return QStringLiteral("RPRT -1\n");
+            send(QStringLiteral("FA%1;").arg(hz, 9, 10, QChar('0')));
+            return QStringLiteral("RPRT 0\n");
+        }
+        if (cmd.startsWith(QLatin1String("T "))) {
+            bool const on = cmd.mid(2).trimmed().toInt() != 0;
+            send(on ? QStringLiteral("TX1;") : QStringLiteral("TX0;"));
+            return QStringLiteral("RPRT 0\n");
+        }
+        if (cmd == QLatin1String("t")) {
+            QString const r = query(QStringLiteral("TX;"), QStringLiteral("TX"));
+            return (r.size() >= 3 && r.at(2) != QLatin1Char('0')) ? QStringLiteral("1\n") : QStringLiteral("0\n");
+        }
+        if (cmd.startsWith(QLatin1String("M "))) return QStringLiteral("RPRT 0\n");   // modo: lo imposta l'operatore
+        return QStringLiteral("RPRT 0\n");
+    }
+
+    qint64 readFreq()
+    {
+        QString const r = query(QStringLiteral("FA;"), QStringLiteral("FA"));
+        if (r.size() < 11) return 0;
+        return r.mid(2, 9).toLongLong();
+    }
+
+    QString readMode()
+    {
+        QString const r = query(QStringLiteral("MD0;"), QStringLiteral("MD"));
+        if (r.size() < 4) return QString();
+        // codici del FT-991: la lettera finale identifica il modo
+        switch (r.at(3).toLatin1()) {
+        case '1': return QStringLiteral("LSB");     case '2': return QStringLiteral("USB");
+        case '3': return QStringLiteral("CW");      case '4': return QStringLiteral("FM");
+        case '5': return QStringLiteral("AM");      case '6': return QStringLiteral("RTTY");
+        case '7': return QStringLiteral("CWR");     case '8': return QStringLiteral("PKTLSB");
+        case '9': return QStringLiteral("RTTYR");   case 'A': return QStringLiteral("PKTFM");
+        case 'B': return QStringLiteral("FMN");     case 'C': return QStringLiteral("PKTUSB");
+        case 'D': return QStringLiteral("AMN");     case 'E': return QStringLiteral("C4FM");
+        default:  return QStringLiteral("USB");
+        }
+    }
+
+private:
+    void send(const QString& s)
+    {
+        if (!isOpen()) return;
+        m_port->write(s.toLatin1());
+        m_port->waitForBytesWritten(200);
+    }
+
+    // Il rig risponde con una stringa terminata da ';'. I set Yaesu NON
+    // rispondono: si interroga solo per i get, con un tetto di attesa breve
+    // per non bloccare l'interfaccia.
+    QString query(const QString& cmd, const QString& expect)
+    {
+        if (!isOpen()) return QString();
+        m_port->clear(QSerialPort::Input);
+        send(cmd);
+        QByteArray acc;
+        QElapsedTimer t; t.start();
+        while (t.elapsed() < 400) {
+            if (!m_port->waitForReadyRead(80)) continue;
+            acc += m_port->readAll();
+            int const end = acc.indexOf(';');
+            if (end >= 0) {
+                QString const r = QString::fromLatin1(acc.left(end + 1));
+                if (expect.isEmpty() || r.startsWith(expect)) return r;
+                acc.remove(0, end + 1);
+            }
+        }
+        return QString();
+    }
+
+    QSerialPort* m_port {nullptr};
+    QString m_error;
+};
+
 class Client : public QWidget
 {
     Q_OBJECT
 public:
     Client()
     {
-        setWindowTitle(QStringLiteral("HF Gateway — audio della radio verso Decodium Mobile"));
+        setWindowTitle(QStringLiteral("Decolink — la radio su Decodium Mobile"));
 
         m_device = new QComboBox;
         for (QAudioDevice const& d : QMediaDevices::audioInputs())
@@ -113,6 +253,27 @@ public:
         row->addWidget(new QLabel(QStringLiteral("livello")));
         row->addWidget(m_level, 1);
 
+        // ---- CAT: controllo del rig sulla seriale, servito al telefono ----
+        m_catPort = new QComboBox;
+        for (QSerialPortInfo const& pi : QSerialPortInfo::availablePorts())
+            m_catPort->addItem(pi.portName() + "  " + pi.description());
+        m_catBaud = new QComboBox;
+        for (int b : {4800, 9600, 19200, 38400, 57600, 115200}) m_catBaud->addItem(QString::number(b));
+        m_catBaud->setCurrentText(QStringLiteral("38400"));
+        m_catTcpPort = new QSpinBox; m_catTcpPort->setRange(1, 65535); m_catTcpPort->setValue(4532);
+        m_catOn = new QCheckBox(QStringLiteral("Servi il CAT al telefono"));
+        m_catState = new QLabel(QStringLiteral("CAT spento"));
+
+        auto* catForm = new QFormLayout;
+        catForm->addRow(QStringLiteral("Porta del rig"), m_catPort);
+        catForm->addRow(QStringLiteral("Velocità"), m_catBaud);
+        catForm->addRow(QStringLiteral("Porta TCP (LAN)"), m_catTcpPort);
+        auto* catBox = new QGroupBox(QStringLiteral("CAT — controllo della radio"));
+        auto* catLay = new QVBoxLayout(catBox);
+        catLay->addLayout(catForm);
+        catLay->addWidget(m_catOn);
+        catLay->addWidget(m_catState);
+
         auto* box = new QGroupBox(QStringLiteral("Stato"));
         auto* bl = new QVBoxLayout(box);
         bl->addWidget(m_status);
@@ -121,11 +282,15 @@ public:
         auto* lay = new QVBoxLayout(this);
         lay->addLayout(form);
         lay->addLayout(row);
+        lay->addWidget(catBox);
         lay->addWidget(box);
         setMinimumWidth(520);
 
         connect(m_start, &QPushButton::clicked, this, [this]{ m_running ? stop() : start(); });
         connect(m_mode, &QComboBox::currentIndexChanged, this, &Client::syncFields);
+        connect(m_catOn, &QCheckBox::toggled, this, &Client::toggleCat);
+        m_catPoll.setInterval(2000);
+        connect(&m_catPoll, &QTimer::timeout, this, &Client::refreshCatState);
 
         // registrazione periodica alla stanza / keepalive verso casa
         m_keepAlive.setInterval(5000);
@@ -137,6 +302,20 @@ public:
 
         loadSettings();
         syncFields();
+        // il CAT riparte come lo si era lasciato: l'idea e' avere un solo
+        // programma sul PC che fa tutto, senza doverlo riconfigurare ogni volta
+        // --cat [PORTA] [BAUD] forza la porta da riga di comando (utile per le
+        // prove e per l'avvio automatico); senza argomenti vale l'ultima scelta.
+        QStringList const args = qApp->arguments();
+        int const ci = args.indexOf(QStringLiteral("--cat"));
+        if (ci >= 0 && ci + 1 < args.size() && !args.at(ci + 1).startsWith(QLatin1Char('-'))) {
+            for (int i = 0; i < m_catPort->count(); ++i)
+                if (m_catPort->itemText(i).startsWith(args.at(ci + 1))) { m_catPort->setCurrentIndex(i); break; }
+            if (ci + 2 < args.size() && !args.at(ci + 2).startsWith(QLatin1Char('-')))
+                m_catBaud->setCurrentText(args.at(ci + 2));
+        }
+        if (m_catWanted || ci >= 0)
+            QTimer::singleShot(0, this, [this] { m_catOn->setChecked(true); });
     }
 
     ~Client() override { saveSettings(); }
@@ -169,6 +348,59 @@ private slots:
                               m_dstAddr, quint16(m_port->value()));
     }
 
+    void toggleCat(bool on)
+    {
+        if (!on) {
+            m_catPoll.stop();
+            if (m_catServer) { m_catServer->close(); m_catServer->deleteLater(); m_catServer = nullptr; }
+            m_rig.close();
+            m_catState->setText(QStringLiteral("CAT spento"));
+            return;
+        }
+        QString const port = m_catPort->currentText().section(QLatin1Char(' '), 0, 0);
+        if (port.isEmpty()) { m_catState->setText(QStringLiteral("nessuna porta seriale")); m_catOn->setChecked(false); return; }
+        if (!m_rig.open(port, m_catBaud->currentText().toInt())) {
+            m_catState->setText(QStringLiteral("%1 non si apre: %2").arg(port, m_rig.error()));
+            m_catOn->setChecked(false);
+            return;
+        }
+        // server TCP per la LAN: e' lo stesso servizio di rigctld, quindi il
+        // telefono si collega come ha sempre fatto
+        m_catServer = new QTcpServer(this);
+        if (!m_catServer->listen(QHostAddress::Any, quint16(m_catTcpPort->value()))) {
+            m_catState->setText(QStringLiteral("porta TCP %1 occupata (rigctld è già in esecuzione?)")
+                                    .arg(m_catTcpPort->value()));
+            m_rig.close(); m_catServer->deleteLater(); m_catServer = nullptr;
+            m_catOn->setChecked(false);
+            return;
+        }
+        connect(m_catServer, &QTcpServer::newConnection, this, [this] {
+            while (QTcpSocket* c = m_catServer->nextPendingConnection()) {
+                connect(c, &QTcpSocket::readyRead, this, [this, c] {
+                    while (c->canReadLine()) {
+                        QString const rsp = m_rig.handle(QString::fromLatin1(c->readLine()));
+                        if (!rsp.isEmpty()) c->write(rsp.toLatin1());
+                    }
+                });
+                connect(c, &QTcpSocket::disconnected, c, &QObject::deleteLater);
+            }
+        });
+        refreshCatState();
+        m_catPoll.start();
+        saveSettings();
+    }
+
+    void refreshCatState()
+    {
+        if (!m_rig.isOpen()) return;
+        qint64 const hz = m_rig.readFreq();
+        QString const md = m_rig.readMode();
+        m_catState->setText(hz > 0
+            ? QStringLiteral("rig: %1 MHz  %2   (TCP %3, e sul canale audio)")
+                  .arg(hz / 1e6, 0, 'f', 3).arg(md).arg(m_catTcpPort->value())
+            : QStringLiteral("rig non risponde sulla seriale"));
+    }
+
     void onDatagram()
     {
         while (m_sock && m_sock->hasPendingDatagrams()) {
@@ -191,7 +423,18 @@ private slots:
                     if (isNew) setStatus(QStringLiteral("telefono connesso da %1:%2")
                                              .arg(from.toString()).arg(fromPort));
                 }
-            } else if (flags == kFlagPeerUp) {
+            }
+            // CAT incapsulato nel canale audio: cosi' funziona anche fuori casa,
+            // dove una connessione TCP al PC non sarebbe possibile.
+            if (flags == kFlagCatReq) {
+                QString const line = QString::fromLatin1(dg.mid(kHdrSize));
+                QString const rsp = m_rig.isOpen() ? m_rig.handle(line) : QStringLiteral("RPRT -1\n");
+                QByteArray const body = rsp.toLatin1();
+                m_sock->writeDatagram(hfgwPacket(kFlagCatRsp, getU32(h + 6), body.constData(), body.size()),
+                                      from, fromPort);
+                continue;
+            }
+            if (flags == kFlagPeerUp) {
                 setStatus(QStringLiteral("il telefono è entrato nella stanza"));
             } else if (flags == kFlagRegister) {
                 setStatus(QStringLiteral("registrato sul relay"));
@@ -324,11 +567,17 @@ private:
 
     void loadSettings()
     {
-        QSettings s(QStringLiteral("it.ft2"), QStringLiteral("hfgw-client"));
+        QSettings s(QStringLiteral("it.ft2"), QStringLiteral("Decolink"));
         m_mode->setCurrentIndex(s.value(QStringLiteral("mode"), 0).toInt());
         m_host->setText(s.value(QStringLiteral("host")).toString());
         m_port->setValue(s.value(QStringLiteral("port"), 5555).toInt());
         m_room->setText(s.value(QStringLiteral("room")).toString());
+        m_catBaud->setCurrentText(s.value(QStringLiteral("catBaud"), QStringLiteral("38400")).toString());
+        m_catTcpPort->setValue(s.value(QStringLiteral("catTcpPort"), 4532).toInt());
+        QString const cp = s.value(QStringLiteral("catPort")).toString();
+        for (int i = 0; i < m_catPort->count(); ++i)
+            if (m_catPort->itemText(i).startsWith(cp) && !cp.isEmpty()) { m_catPort->setCurrentIndex(i); break; }
+        m_catWanted = s.value(QStringLiteral("catOn"), false).toBool();
         QString const dev = s.value(QStringLiteral("device")).toString();
         int const i = m_device->findText(dev);
         if (i >= 0) m_device->setCurrentIndex(i);
@@ -336,12 +585,16 @@ private:
 
     void saveSettings()
     {
-        QSettings s(QStringLiteral("it.ft2"), QStringLiteral("hfgw-client"));
+        QSettings s(QStringLiteral("it.ft2"), QStringLiteral("Decolink"));
         s.setValue(QStringLiteral("mode"), m_mode->currentIndex());
         s.setValue(QStringLiteral("host"), m_host->text());
         s.setValue(QStringLiteral("port"), m_port->value());
         s.setValue(QStringLiteral("room"), m_room->text());
         s.setValue(QStringLiteral("device"), m_device->currentText());
+        s.setValue(QStringLiteral("catPort"), m_catPort->currentText().section(QLatin1Char(' '), 0, 0));
+        s.setValue(QStringLiteral("catBaud"), m_catBaud->currentText());
+        s.setValue(QStringLiteral("catTcpPort"), m_catTcpPort->value());
+        s.setValue(QStringLiteral("catOn"), m_catOn->isChecked());
     }
 
     QComboBox *m_device, *m_mode;
@@ -350,6 +603,15 @@ private:
     QPushButton* m_start;
     QProgressBar* m_level;
     QLabel *m_status, *m_stats;
+
+    QComboBox *m_catPort, *m_catBaud;
+    QSpinBox* m_catTcpPort;
+    QCheckBox* m_catOn;
+    QLabel* m_catState;
+    CatRig m_rig;
+    bool m_catWanted {false};
+    QTcpServer* m_catServer {nullptr};
+    QTimer m_catPoll;
 
     QAudioSource* m_audio {nullptr};
     QIODevice* m_audioIo {nullptr};
@@ -383,6 +645,26 @@ int main(int argc, char** argv)
         for (QAudioDevice const& d : ins) out << "  " << d.description() << "\n";
         out.flush();
         return ins.isEmpty() ? 2 : 0;
+    }
+
+    // --cattest COM5 38400: interroga solo la seriale del rig ed esce. Serve a
+    // distinguere un problema di porta/cablaggio da uno di rete.
+    if (app.arguments().contains(QStringLiteral("--cattest"))) {
+        QTextStream out(stdout);
+        QStringList const a2 = app.arguments();
+        int const i = a2.indexOf(QStringLiteral("--cattest"));
+        QString const port = (i + 1 < a2.size()) ? a2.at(i + 1) : QStringLiteral("COM5");
+        int const baud = (i + 2 < a2.size()) ? a2.at(i + 2).toInt() : 38400;
+        out << "porte disponibili:";
+        for (QSerialPortInfo const& pi : QSerialPortInfo::availablePorts()) out << " " << pi.portName();
+        out << "\napro " << port << " a " << baud << " baud\n";
+        CatRig rig;
+        if (!rig.open(port, baud)) { out << "apertura fallita: " << rig.error() << "\n"; out.flush(); return 6; }
+        qint64 const hz = rig.readFreq();
+        QString const md = rig.readMode();
+        out << "frequenza letta: " << hz << "\nmodo letto: " << (md.isEmpty() ? QStringLiteral("(nessuna risposta)") : md) << "\n";
+        out.flush();
+        return hz > 0 ? 0 : 7;
     }
 
     // --selftest: apre davvero l'ingresso e cattura mezzo secondo. Elencare i
