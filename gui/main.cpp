@@ -196,6 +196,17 @@ public:
             QString const r = query(QStringLiteral("TX;"), QStringLiteral("TX"));
             return (r.size() >= 3 && r.at(2) != QLatin1Char('0')) ? QStringLiteral("1\n") : QStringLiteral("0\n");
         }
+        // Comandi Yaesu grezzi, come il "w"/"W" di rigctl: servono per quello che
+        // netrigctl non copre (potenza, misuratori). "w" invia e basta (i set
+        // Yaesu non rispondono), "W" invia e restituisce la risposta.
+        if (cmd.startsWith(QLatin1String("w "))) {
+            send(cmd.mid(2).trimmed());
+            return QStringLiteral("RPRT 0\n");
+        }
+        if (cmd.startsWith(QLatin1String("W "))) {
+            QString const r = query(cmd.mid(2).trimmed(), QString());
+            return r.isEmpty() ? QStringLiteral("RPRT -1\n") : r + "\n";
+        }
         if (cmd.startsWith(QLatin1String("M "))) return QStringLiteral("RPRT 0\n");   // modo: lo imposta l'operatore
         return QStringLiteral("RPRT 0\n");
     }
@@ -371,6 +382,10 @@ public:
         }
         if (m_catWanted || ci >= 0)
             QTimer::singleShot(0, this, [this] { m_catOn->setChecked(true); });
+        // --start: comincia subito a mandare l'audio, senza premere Avvia. Serve
+        // per lasciarlo acceso in stazione senza doverci tornare sopra.
+        if (args.contains(QStringLiteral("--start")))
+            QTimer::singleShot(300, this, [this] { if (!m_running) start(); });
     }
 
     ~Client() override { saveSettings(); }
@@ -746,6 +761,9 @@ int main(int argc, char** argv)
         QList<QAudioDevice> const ins = QMediaDevices::audioInputs();
         out << "ingressi audio trovati: " << ins.size() << "\n";
         for (QAudioDevice const& d : ins) out << "  " << d.description() << "\n";
+        QList<QAudioDevice> const outs = QMediaDevices::audioOutputs();
+        out << "uscite audio trovate: " << outs.size() << "\n";
+        for (QAudioDevice const& d : outs) out << "  " << d.description() << "\n";
         out.flush();
         return ins.isEmpty() ? 2 : 0;
     }
