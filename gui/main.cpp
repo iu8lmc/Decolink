@@ -19,6 +19,7 @@
 #include <QCheckBox>
 #include <QAudioDevice>
 #include <QAudioFormat>
+#include <QAudioSink>
 #include <QAudioSource>
 #include <QComboBox>
 #include <QDateTime>
@@ -46,6 +47,7 @@
 #include <QWidget>
 
 #include <QElapsedTimer>
+#include <QMutex>
 
 #include <cmath>
 
@@ -56,7 +58,8 @@ constexpr int kFrame     = kRate / 100;   // 480 campioni = 10 ms
 constexpr int kHdrSize   = 22;
 constexpr quint8 kFlagAudio = 0, kFlagPing = 1, kFlagPong = 2,
                  kFlagRegister = 3, kFlagPeerUp = 4,
-                 kFlagCatReq = 5, kFlagCatRsp = 6;   // comandi CAT sullo stesso canale
+                 kFlagCatReq = 5, kFlagCatRsp = 6,   // comandi CAT sullo stesso canale
+                 kFlagTxAudio = 7;                   // audio che il telefono vuole trasmettere
 
 void putU32(char* p, quint32 v) { p[0]=char(v>>24); p[1]=char(v>>16); p[2]=char(v>>8); p[3]=char(v); }
 void putU64(char* p, quint64 v) { for (int i = 0; i < 8; ++i) p[i] = char(v >> (56 - 8*i)); }
@@ -79,6 +82,52 @@ enum Mode { ModeLan = 0, ModeRelay = 1, ModeListen = 2 };
 
 } // namespace
 
+
+// Coda dell'audio da trasmettere, letta dalla scheda in modalita' pull: e' la
+// scheda a chiedere i campioni quando le servono. Se la coda e' vuota si manda
+// silenzio invece di lasciarla a secco (un vuoto si sentirebbe come uno scatto),
+// e se il ritardo cresce troppo si scartano i campioni piu' vecchi in un colpo.
+class TxQueue : public QIODevice
+{
+    Q_OBJECT
+public:
+    explicit TxQueue(QObject* parent = nullptr) : QIODevice(parent) {}
+    void push(const QByteArray& pcm)
+    {
+        QMutexLocker lock(&m_mx);
+        m_buf.append(pcm);
+        if (m_buf.size() > kMaxBytes) m_buf.remove(0, m_buf.size() - kMaxBytes);
+        m_lastMs = QDateTime::currentMSecsSinceEpoch();
+    }
+    bool idle(qint64 forMs) const
+    {
+        QMutexLocker lock(&m_mx);
+        return m_lastMs > 0 && QDateTime::currentMSecsSinceEpoch() - m_lastMs > forMs;
+    }
+    bool isSequential() const override { return true; }
+    qint64 bytesAvailable() const override
+    {
+        QMutexLocker lock(&m_mx);
+        // flusso infinito: readData restituisce sempre quanto richiesto
+        return qMax<qint64>(m_buf.size(), 8192) + QIODevice::bytesAvailable();
+    }
+protected:
+    qint64 readData(char* data, qint64 maxlen) override
+    {
+        if (maxlen <= 0) return 0;
+        QMutexLocker lock(&m_mx);
+        qint64 const n = qMin<qint64>(maxlen, m_buf.size());
+        if (n > 0) { std::memcpy(data, m_buf.constData(), size_t(n)); m_buf.remove(0, int(n)); }
+        if (n < maxlen) std::memset(data + n, 0, size_t(maxlen - n));
+        return maxlen;
+    }
+    qint64 writeData(const char*, qint64) override { return 0; }
+private:
+    static constexpr int kMaxBytes = 48000;   // ~500 ms a 48 kHz int16
+    mutable QMutex m_mx;
+    QByteArray m_buf;
+    qint64 m_lastMs {0};
+};
 
 // Controllo del rig sulla seriale, in dialetto Yaesu (comandi terminati da ';').
 // All'esterno parla il protocollo di rigctld (netrigctl), che Decodium Mobile
@@ -264,7 +313,13 @@ public:
         m_catOn = new QCheckBox(QStringLiteral("Servi il CAT al telefono"));
         m_catState = new QLabel(QStringLiteral("CAT spento"));
 
+        m_rigOut = new QComboBox;
+        m_rigOut->addItem(QStringLiteral("(nessuna: non trasmettere)"));
+        for (QAudioDevice const& d : QMediaDevices::audioOutputs())
+            m_rigOut->addItem(d.description());
+
         auto* catForm = new QFormLayout;
+        catForm->addRow(QStringLiteral("Audio verso il rig (TX)"), m_rigOut);
         catForm->addRow(QStringLiteral("Porta del rig"), m_catPort);
         catForm->addRow(QStringLiteral("Velocità"), m_catBaud);
         catForm->addRow(QStringLiteral("Porta TCP (LAN)"), m_catTcpPort);
@@ -424,6 +479,12 @@ private slots:
                                              .arg(from.toString()).arg(fromPort));
                 }
             }
+            // Audio che il telefono vuole trasmettere: lo si riproduce nel CODEC
+            // USB del rig. Il PTT lo ha gia' alzato il telefono via CAT.
+            if (flags == kFlagTxAudio) {
+                feedTx(dg.mid(kHdrSize));
+                continue;
+            }
             // CAT incapsulato nel canale audio: cosi' funziona anche fuori casa,
             // dove una connessione TCP al PC non sarebbe possibile.
             if (flags == kFlagCatReq) {
@@ -464,8 +525,43 @@ private slots:
         }
     }
 
+    // Apre la scheda del rig alla prima richiesta e la chiude quando il telefono
+    // smette di mandare: tenerla aperta a vuoto terrebbe occupato il CODEC.
+    void feedTx(const QByteArray& pcm)
+    {
+        if (m_rigOut->currentIndex() <= 0 || pcm.isEmpty()) return;
+        if (!m_txSink) {
+            QList<QAudioDevice> const outs = QMediaDevices::audioOutputs();
+            int const idx = m_rigOut->currentIndex() - 1;
+            if (idx < 0 || idx >= outs.size()) return;
+            QAudioFormat fmt;
+            fmt.setSampleRate(kRate); fmt.setChannelCount(1); fmt.setSampleFormat(QAudioFormat::Int16);
+            if (!outs[idx].isFormatSupported(fmt)) {
+                setStatus(QStringLiteral("%1 non supporta 48 kHz mono 16 bit").arg(outs[idx].description()));
+                return;
+            }
+            m_txQueue = new TxQueue(this);
+            m_txQueue->open(QIODevice::ReadOnly);
+            m_txSink = new QAudioSink(outs[idx], fmt, this);
+            m_txSink->setBufferSize(kRate * 2 / 10);      // ~100 ms
+            m_txSink->start(m_txQueue);
+            setStatus(QStringLiteral("trasmissione dal telefono in corso"));
+        }
+        m_txQueue->push(pcm);
+    }
+
+    void closeTxIfIdle()
+    {
+        if (!m_txSink || !m_txQueue) return;
+        if (!m_txQueue->idle(1200)) return;               // ancora audio in arrivo
+        m_txSink->stop(); m_txSink->deleteLater(); m_txSink = nullptr;
+        m_txQueue->close(); m_txQueue->deleteLater(); m_txQueue = nullptr;
+        setStatus(QStringLiteral("trasmissione finita"));
+    }
+
     void refreshStats()
     {
+        closeTxIfIdle();
         m_level->setValue(int(qMin(1.0, m_rms * 4.0) * 100));
         if (!m_running) { m_stats->setText(QStringLiteral("—")); return; }
         m_stats->setText(QStringLiteral("pacchetti inviati: %1   (%2 al secondo attesi: 100)")
@@ -578,6 +674,8 @@ private:
         for (int i = 0; i < m_catPort->count(); ++i)
             if (m_catPort->itemText(i).startsWith(cp) && !cp.isEmpty()) { m_catPort->setCurrentIndex(i); break; }
         m_catWanted = s.value(QStringLiteral("catOn"), false).toBool();
+        int const ro = m_rigOut->findText(s.value(QStringLiteral("rigOut")).toString());
+        if (ro >= 0) m_rigOut->setCurrentIndex(ro);
         QString const dev = s.value(QStringLiteral("device")).toString();
         int const i = m_device->findText(dev);
         if (i >= 0) m_device->setCurrentIndex(i);
@@ -595,6 +693,7 @@ private:
         s.setValue(QStringLiteral("catBaud"), m_catBaud->currentText());
         s.setValue(QStringLiteral("catTcpPort"), m_catTcpPort->value());
         s.setValue(QStringLiteral("catOn"), m_catOn->isChecked());
+        s.setValue(QStringLiteral("rigOut"), m_rigOut->currentText());
     }
 
     QComboBox *m_device, *m_mode;
@@ -612,6 +711,10 @@ private:
     bool m_catWanted {false};
     QTcpServer* m_catServer {nullptr};
     QTimer m_catPoll;
+
+    QComboBox* m_rigOut;
+    QAudioSink* m_txSink {nullptr};
+    TxQueue* m_txQueue {nullptr};
 
     QAudioSource* m_audio {nullptr};
     QIODevice* m_audioIo {nullptr};

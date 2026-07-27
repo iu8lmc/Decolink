@@ -9,8 +9,8 @@ tra loro. Sostituisce la necessità di Tailscale / port-forwarding: i due
 gateway escono verso questo server, che fa da ponte. Funziona con qualsiasi
 NAT.
 
-Solo libreria standard Python 3 (nessun pip). Protocollo HFGW v1,
-compatibile con il gateway C++ e col tool Python di Decodium.
+Solo libreria standard Python 3 (nessun pip). Protocollo HFGW v1, compatibile con Decolink e con Decodium Mobile.
+Inoltra audio (flag 0) e comandi CAT (flag 5/6) fra i membri della stanza.
 
 Uso:
     python3 hf_relay.py [porta]        # default 5555
@@ -28,6 +28,11 @@ MAGIC = b"HFGW"
 VER = 1
 HDR = struct.Struct("!4sBBIQI")  # magic, ver, flags, seq, t_ms, rate = 22 byte
 F_AUDIO, F_PING, F_PONG, F_REGISTER, F_PEERUP = 0, 1, 2, 3, 4
+# 5/6: comandi CAT e relative risposte. Viaggiano sullo stesso canale
+# dell'audio perche' fuori dalla rete locale non c'e' modo di aprire una
+# connessione diretta verso il PC della radio (NAT dell'operatore).
+F_CAT_REQ, F_CAT_RSP = 5, 6
+FORWARDED = (F_AUDIO, F_CAT_REQ, F_CAT_RSP)
 
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 5555
 CLIENT_TIMEOUT = 15.0   # s senza pacchetti -> client rimosso
@@ -95,7 +100,7 @@ def main():
                                 for a in members:
                                     sock.sendto(hdr(F_PEERUP, 0, 0, rate), a)
 
-                    elif flags == F_AUDIO:
+                    elif flags in FORWARDED:
                         info = addr_room.get(addr)
                         if info:
                             room = info[0]
