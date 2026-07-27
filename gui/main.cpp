@@ -23,6 +23,7 @@
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QHostInfo>
+#include <QIcon>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
@@ -31,6 +32,7 @@
 #include <QPushButton>
 #include <QSettings>
 #include <QSpinBox>
+#include <QTextStream>
 #include <QTimer>
 #include <QUdpSocket>
 #include <QVBoxLayout>
@@ -368,6 +370,20 @@ private:
 int main(int argc, char** argv)
 {
     QApplication app(argc, argv);
+    app.setWindowIcon(QIcon(QStringLiteral(":/hfgw.ico")));
+
+    // --devices: elenca gli ingressi audio e esce. Serve a verificare che il
+    // backend multimediale funzioni davvero in una copia distribuita (se manca
+    // qualcosa la lista esce vuota e il client sarebbe inutilizzabile).
+    if (app.arguments().contains(QStringLiteral("--devices"))) {
+        QTextStream out(stdout);
+        QList<QAudioDevice> const ins = QMediaDevices::audioInputs();
+        out << "ingressi audio trovati: " << ins.size() << "\n";
+        for (QAudioDevice const& d : ins) out << "  " << d.description() << "\n";
+        out.flush();
+        return ins.isEmpty() ? 2 : 0;
+    }
+
     Client w;
     w.show();
     return app.exec();

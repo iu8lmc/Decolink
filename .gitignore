@@ -1,3 +1,5 @@
 build/
 *.exe
 hfgw.cfg
+dist/
+_*.txt
