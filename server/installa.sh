@@ -32,11 +32,19 @@ if systemctl is-active --quiet hf-relay 2>/dev/null; then
     echo "sulla porta $PORTA_RELAY/udp. Il nuovo gateway non puo' partire finche'"
     echo "quello vecchio la tiene occupata, e fermarlo scollega chi lo sta usando."
     echo
-    read -r -p "Fermo e disabilito hf-relay adesso? [s/N] " risposta
+    if [ -t 0 ]; then
+        read -r -p "Fermo e disabilito hf-relay adesso? [s/N] " risposta
+    else
+        # Senza terminale (deploy da remoto) non si puo' chiedere niente a
+        # nessuno: si ferma solo se e' stato detto prima, esplicitamente.
+        risposta=$([ "${STOP_HF_RELAY:-0}" = "1" ] && echo s || echo n)
+        echo "  (nessun terminale: STOP_HF_RELAY=${STOP_HF_RELAY:-0})"
+    fi
     case "$risposta" in
         s|S|si|SI|y|Y) systemctl disable --now hf-relay; echo "  hf-relay fermato." ;;
         *) echo "  lascio hf-relay attivo: il relay nuovo non partira'."
-           echo "  In alternativa rilancia con PORTA_RELAY=5556 per usare un'altra porta." ;;
+           echo "  Rilancia con STOP_HF_RELAY=1, oppure con PORTA_RELAY=5556 per"
+           echo "  affiancarlo su un'altra porta." ;;
     esac
 fi
 
@@ -67,9 +75,17 @@ fi
 # relay creerebbero la chiave per conto loro in ordine imprevedibile.
 if [ ! -f "$DEST/decolink.db" ]; then
     echo
-    echo "Nessun database: creo il primo amministratore e la prima stazione."
-    echo
-    sudo -u "$UTENTE" python3 "$DEST/decolink_admin.py" init
+    if [ -t 0 ]; then
+        echo "Nessun database: creo il primo amministratore e la prima stazione."
+        echo
+        sudo -u "$UTENTE" python3 "$DEST/decolink_admin.py" init
+    else
+        # L'amministratore va creato da chi ha davanti la tastiera: la sua
+        # password non deve passare per un file, una variabile o un log.
+        echo "Nessun database. Il primo amministratore va creato a mano:"
+        echo "    sudo -u $UTENTE python3 $DEST/decolink_admin.py init"
+        echo "Finche' non esiste, nessuno puo' entrare nel pannello."
+    fi
 fi
 
 systemctl enable --now decolink-relay decolink-web
