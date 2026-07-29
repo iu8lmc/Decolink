@@ -35,6 +35,23 @@ indirizzo di chi l'ha fatta: è la traccia che permette di dire chi ha operato.
 
 ## Installazione sul VPS
 
+Dalla cartella `server/` del repository, sul VPS:
+
+```bash
+sudo bash installa.sh
+```
+
+Lo script fa tutto: utente di sistema, copia dei file, unit systemd, apertura
+della porta sul firewall e creazione del primo amministratore. Si può rieseguire
+per aggiornare i file senza toccare database, utenti e chiave di firma.
+
+Se sulla macchina gira ancora `hf-relay` (il relay senza autenticazione, che
+tiene la stessa porta UDP) lo script se ne accorge e chiede se fermarlo, perché
+farlo scollega chi lo sta usando in quel momento. Per affiancarlo invece di
+sostituirlo: `sudo PORTA_RELAY=5556 bash installa.sh`.
+
+### A mano, se si preferisce
+
 ```bash
 sudo mkdir -p /opt/decolink
 sudo cp decolink_*.py /opt/decolink/
