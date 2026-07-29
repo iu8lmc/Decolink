@@ -128,6 +128,22 @@ def cmd_sospendi(conn, args):
           f"entro pochi secondi.")
 
 
+def cmd_admin(conn, args):
+    """Da' o toglie i poteri di amministratore.
+
+    Serve almeno per il secondo amministratore: il primo nasce con 'init', ma
+    se poi si vuole promuovere qualcuno (o togliersi i poteri di dosso) dal
+    pannello non si puo', ed e' giusto cosi' — e' una cosa da fare con le mani
+    sul server.
+    """
+    u = trova_utente(conn, args.email)
+    valore = 0 if args.togli else 1
+    conn.execute("UPDATE users SET is_admin = ? WHERE id = ?", (valore, u["id"]))
+    conn.commit()
+    print(f"{u['callsign']} " + ("non è più amministratore." if args.togli
+                                 else "è amministratore."))
+
+
 def cmd_password(conn, args):
     u = trova_utente(conn, args.email)
     print(f"nuova password per {u['callsign']} <{u['email']}>")
@@ -212,6 +228,11 @@ def main():
         p = sub.add_parser(nome, help=aiuto)
         p.add_argument("email")
         p.set_defaults(f=fn)
+
+    p = sub.add_parser("admin", help="rende (o non rende più) amministratore")
+    p.add_argument("email")
+    p.add_argument("--togli", action="store_true", help="revoca i poteri invece di darli")
+    p.set_defaults(f=cmd_admin)
 
     sub.add_parser("stazioni", help="elenca stazioni e membri").set_defaults(f=cmd_stazioni)
 
