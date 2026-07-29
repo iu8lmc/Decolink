@@ -12,8 +12,12 @@
 set -e
 
 MINGW=/c/msys64/mingw64
-SRC=/c/decolink/gui
-OUT=/c/decolink/dist/Decolink
+# Percorsi ricavati da dove sta questo script, non scritti a mano: la cartella
+# del progetto ha gia' cambiato nome una volta e gli script erano rimasti a
+# puntare al vecchio, senza dirlo.
+SRC=$(cd "$(dirname "$0")" && pwd)
+RADICE=$(cd "$SRC/.." && pwd)
+OUT=$RADICE/dist/Decolink
 
 [ -f "$SRC/build/decolink.exe" ] || { echo "manca build/decolink.exe: esegui prima gui/build.bat"; exit 1; }
 
@@ -54,8 +58,9 @@ done
 # funzionano separati: il relay senza il servizio web non ha token da verificare.
 mkdir -p "$OUT/server"
 for f in decolink_relay.py decolink_web.py decolink_db.py decolink_token.py \
-         decolink_admin.py decolink-relay.service decolink-web.service LEGGIMI.md; do
-    cp "/c/decolink/server/$f" "$OUT/server/" 2>/dev/null || true
+         decolink_admin.py decolink-relay.service decolink-web.service \
+         nginx-decolink.conf installa.sh LEGGIMI.md; do
+    cp "$RADICE/server/$f" "$OUT/server/" 2>/dev/null || true
 done
 
 # ---- verifica in ambiente pulito (senza MSYS2 nel PATH) ----
