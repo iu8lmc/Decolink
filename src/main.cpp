@@ -57,6 +57,10 @@ typedef int SOCKET;
 #include <string>
 #include <thread>
 #include <vector>
+#include <csignal>
+#include <cstdlib>
+#include <ctime>
+#include <iomanip>
 
 // ---------------------------------------------------------------- protocollo
 static const char MAGIC[4] = {'H', 'F', 'G', 'W'};
@@ -84,6 +88,7 @@ struct Config {
     int jitterMs = 120;
     bool toneTest = false;
     double noiseDbfs = -999.0, attenDb = 0.0, qsbDepthDb = 0.0, qsbPeriod = 20.0;
+    std::string statsLog = "";   // file telemetria (opzionale, opt-in)
 };
 
 static std::string cfg_path() { return "hfgw.cfg"; }
@@ -172,6 +177,42 @@ struct Gateway {
     std::atomic<double> inRms{0.0}, outRms{0.0};
     std::atomic<bool> peerUp{false};
 
+    // --- telemetria di rete per diagnosi QSO FT2-Link su internet ---
+    std::atomic<uint64_t> netRecv{0};        // pacchetti AUDIO ricevuti dal peer (pre jitter-buffer)
+    std::mutex netMx;
+    bool haveRxFirst = false;
+    uint32_t rxFirstSeq = 0, rxHighSeq = 0;  // per perdita netta da salti di sequenza
+    std::mutex rttMx;
+    std::deque<int64_t> rttHist;             // ultimi campioni RTT (ms)
+
+    struct RttStat { int64_t last = -1, mn = -1, mx = -1; double avg = -1.0, jit = -1.0; };
+    RttStat rtt_stats() {
+        RttStat s; s.last = rttMs.load();
+        std::lock_guard<std::mutex> lk(rttMx);
+        if (rttHist.empty()) return s;
+        int64_t sum = 0, mn = rttHist[0], mx = rttHist[0], jsum = 0; size_t jn = 0;
+        for (size_t i = 0; i < rttHist.size(); i++) {
+            int64_t v = rttHist[i]; sum += v;
+            if (v < mn) mn = v;
+            if (v > mx) mx = v;
+            if (i) { jsum += std::llabs(v - rttHist[i-1]); jn++; }
+        }
+        s.mn = mn; s.mx = mx; s.avg = double(sum) / double(rttHist.size());
+        s.jit = jn ? double(jsum) / double(jn) : 0.0;
+        return s;
+    }
+    // perdita netta di rete (%): pacchetti AUDIO mancanti nella sequenza del peer
+    double net_loss_pct(uint64_t& netLostOut) {
+        std::lock_guard<std::mutex> lk(netMx);
+        netLostOut = 0;
+        if (!haveRxFirst) return 0.0;
+        uint64_t expected = uint64_t(rxHighSeq - rxFirstSeq) + 1;
+        uint64_t got = netRecv.load();
+        uint64_t lost = expected > got ? expected - got : 0;
+        netLostOut = lost;
+        return expected ? 100.0 * double(lost) / double(expected) : 0.0;
+    }
+
     bool resolve_server() {
         addrinfo hints{}, *res = nullptr;
         hints.ai_family = AF_INET;
@@ -233,13 +274,26 @@ struct Gateway {
             uint32_t seq = get_u32(buf + 6);
             uint64_t tms = get_u64(buf + 10);
             uint32_t rate = get_u32(buf + 18);
-            if (flags == FLAG_PONG) { rttMs = int64_t(now_ms() - tms); continue; }
+            if (flags == FLAG_PONG) {
+                int64_t r = int64_t(now_ms() - tms);
+                rttMs = r;
+                std::lock_guard<std::mutex> lk(rttMx);
+                rttHist.push_back(r);
+                if (rttHist.size() > 64) rttHist.pop_front();
+                continue;
+            }
             if (flags == FLAG_PEERUP) { if (!peerUp.exchange(true)) std::cout << ">>> peer connesso nella stanza\n"; continue; }
             if (flags == FLAG_REGISTER) { continue; }  // ack registrazione
             if (flags != FLAG_AUDIO) continue;
             if (int(rate) != cfg.rate) { late++; continue; }
             int samples = (n - HDR_SIZE) / 2;
             if (samples != frame) continue;
+            netRecv++;
+            {
+                std::lock_guard<std::mutex> lk(netMx);
+                if (!haveRxFirst) { haveRxFirst = true; rxFirstSeq = seq; rxHighSeq = seq; }
+                else if (seq > rxHighSeq) rxHighSeq = seq;
+            }
             std::vector<int16_t> pcm(frame);
             memcpy(pcm.data(), buf + HDR_SIZE, frame * 2);
             std::lock_guard<std::mutex> lk(mx);
@@ -312,6 +366,8 @@ struct Gateway {
 };
 
 static Gateway* g_gw = nullptr;
+static std::atomic<bool> g_quit{false};
+static void on_signal(int) { g_quit.store(true); }
 static void ma_callback(ma_device* dev, void* out, const void* in, ma_uint32 frames) {
     (void)dev; g_gw->audio_cb((int16_t*)out, (const int16_t*)in, frames);
 }
@@ -397,6 +453,10 @@ int main(int argc, char** argv) {
         else if (a == "--qsb-depth-db") nextd(cfg.qsbDepthDb);
         else if (a == "--qsb-period") nextd(cfg.qsbPeriod);
         else if (a == "--jitter-ms") { double v = 120; nextd(v); cfg.jitterMs = int(v); }
+        else if (a == "--stats-log") {
+            if (i + 1 < argc && argv[i + 1][0] != '-') cfg.statsLog = argv[++i];
+            else cfg.statsLog = "hfgw_stats.log";
+        }
         else if (a == "--help" || a == "-h") {
             std::cout <<
                 "hf-gateway — radio HF via internet per Decodium FT2/FT2-Link\n\n"
@@ -408,6 +468,7 @@ int main(int argc, char** argv) {
                 "  --server HOST      server relay (default community.ft2.it)\n"
                 "  --tone-test        trasmette un tono 1500 Hz (collaudo senza Decodium)\n"
                 "  --jitter-ms N      jitter buffer (default 120)\n"
+                "  --stats-log [F]    logga telemetria (RTT/perdita) su CSV (default hfgw_stats.log)\n"
                 "canale HF (default OFF): --noise-dbfs X  --attenuate-db X  --qsb-depth-db X  --qsb-period X\n";
             return 0;
         }
@@ -459,6 +520,23 @@ int main(int argc, char** argv) {
 
     std::thread trx(&Gateway::rx_loop, &gw);
     std::thread tka(&Gateway::keepalive_loop, &gw);
+    std::signal(SIGINT, on_signal);
+    std::signal(SIGTERM, on_signal);
+
+    std::ofstream stats;
+    if (!cfg.statsLog.empty()) {
+        stats.open(cfg.statsLog, std::ios::app);
+        if (stats) {
+            stats << "# hf-gateway telemetria — stanza=" << cfg.room
+                  << " server=" << cfg.serverHost << ":" << cfg.serverPort << "\n";
+            stats << "wallclock,uptime_s,peer,tx,rx,net_lost,loss_pct,buf_lost,underrun,"
+                     "rtt_last_ms,rtt_min_ms,rtt_avg_ms,rtt_max_ms,rtt_jit_ms,in_dbfs,out_dbfs\n";
+            stats.flush();
+            std::cout << "telemetria loggata in " << cfg.statsLog << "\n";
+        } else {
+            std::cout << "AVVISO: impossibile aprire il file telemetria '" << cfg.statsLog << "'\n";
+        }
+    }
 
     std::cout << "\ngateway ATTIVO — stanza '" << cfg.room << "' su " << cfg.serverHost << ":" << cfg.serverPort
               << "\ncanale HF: " << (gw.channel.active() ? "ATTIVO" : "pass-through")
@@ -468,12 +546,56 @@ int main(int argc, char** argv) {
     auto dbfs = [](double v) {
         char b[16]; snprintf(b, sizeof(b), "%5.1f", 20.0 * std::log10(std::max(v, 1e-9))); return std::string(b);
     };
-    while (true) {
+    auto wallclock = []() {
+        std::time_t tt = std::time(nullptr);
+        char b[32]; std::strftime(b, sizeof(b), "%Y-%m-%d %H:%M:%S", std::localtime(&tt));
+        return std::string(b);
+    };
+    uint64_t t0 = now_ms();
+    while (!g_quit) {
         std::this_thread::sleep_for(std::chrono::seconds(2));
+        uint64_t netLost = 0;
+        double lossPct = gw.net_loss_pct(netLost);
+        Gateway::RttStat rs = gw.rtt_stats();
+        double up = double(now_ms() - t0) / 1000.0;
         std::cout << (gw.peerUp ? "[peer OK] " : "[no peer] ")
                   << "tx " << gw.sent << "  rx " << gw.recvd
-                  << "  persi " << gw.lost << "  underrun " << gw.underrun
-                  << "  rtt " << gw.rttMs << " ms"
+                  << "  loss " << std::fixed << std::setprecision(1) << lossPct << "% (" << netLost << ")"
+                  << "  underrun " << gw.underrun
+                  << "  rtt " << rs.last << " ms (avg " << std::setprecision(0) << rs.avg
+                  << " max " << rs.mx << " jit " << std::setprecision(1) << rs.jit << ")"
                   << "  in " << dbfs(gw.inRms) << "  out " << dbfs(gw.outRms) << " dBFS\n";
+        if (stats) {
+            stats << wallclock() << "," << std::fixed << std::setprecision(1) << up << ","
+                  << (gw.peerUp ? 1 : 0) << "," << gw.sent << "," << gw.recvd << ","
+                  << netLost << "," << lossPct << "," << gw.lost << "," << gw.underrun << ","
+                  << rs.last << "," << rs.mn << "," << std::setprecision(1) << rs.avg << ","
+                  << rs.mx << "," << rs.jit << ","
+                  << dbfs(gw.inRms) << "," << dbfs(gw.outRms) << "\n";
+            stats.flush();
+        }
     }
+
+    std::cout << "\nchiusura in corso...\n";
+    gw.stop = true;
+    ma_device_stop(&device);
+    if (trx.joinable()) trx.join();
+    if (tka.joinable()) tka.join();
+    {
+        uint64_t netLost = 0;
+        double lossPct = gw.net_loss_pct(netLost);
+        Gateway::RttStat rs = gw.rtt_stats();
+        std::cout << "riepilogo sessione: tx " << gw.sent << "  rx " << gw.recvd
+                  << "  perdita " << std::fixed << std::setprecision(1) << lossPct << "% (" << netLost << ")"
+                  << "  underrun " << gw.underrun
+                  << "  rtt avg " << std::setprecision(0) << rs.avg << " max " << rs.mx << " ms\n";
+        if (stats) {
+            stats << "# fine sessione — tx " << gw.sent << " rx " << gw.recvd
+                  << " loss " << std::setprecision(1) << lossPct << "% rtt_avg " << rs.avg
+                  << " rtt_max " << rs.mx << "\n";
+            stats.flush(); stats.close();
+        }
+    }
+    ma_device_uninit(&device);
+    return 0;
 }
