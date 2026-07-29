@@ -15,15 +15,45 @@ PRIMA COSA DA IMPOSTARE
 Se il livello resta a zero mentre la radio riceve, e' sbagliato questo.
 
 
+ACCESSO (serve per la modalita' Relay)
+--------------------------------------
+Il relay non accetta piu' collegamenti anonimi: bisogna avere un accesso
+approvato dal titolare della stazione.
+
+   Server di accesso : decolink.ft2.it   (lo stesso indirizzo del relay)
+   Email e password  : quelle con cui ci si e' registrati
+   Poi "Accedi".
+
+Chi non ha ancora un accesso lo chiede dal browser, sullo stesso indirizzo:
+   https://decolink.ft2.it/registrati
+indicando nominativo e stazione. La richiesta resta in attesa finche' il
+titolare non la approva.
+
+Dopo l'accesso la riga sotto il pulsante dice chi sei, su quale stazione e con
+che ruolo. "solo ascolto" significa che si riceve l'audio ma non si puo'
+trasmettere ne' comandare il rig: e' il ruolo, non un guasto.
+
+"Ricorda la password" serve a chi lascia il PC acceso in stazione: al riavvio
+Decolink si ricollega da solo. La password viene salvata in chiaro fra le
+impostazioni di Windows, quindi conviene solo su un computer di cui ci si fida.
+
+Il collegamento si rinnova da solo ogni ora. Se il titolare toglie il permesso
+mentre si e' collegati, il relay chiude entro pochi secondi e ne scrive il
+motivo nello stato.
+
+
 LE TRE MODALITA'
 ----------------
 1) LAN diretta — il telefono e' sulla stessa rete WiFi
    Host: l'indirizzo IP del telefono (es. 192.168.1.146)
    Sul telefono: Setup > AUDIO > Collegamento = LAN, poi "Ricevi".
 
-2) Relay + stanza — il telefono e' ovunque, anche su dati mobili
-   Host: community.ft2.it     Stanza: un codice a scelta, uguale sui due lati
-   Sul telefono: Collegamento = Relay, stesso host e stessa stanza.
+2) Relay + stazione — il telefono e' ovunque, anche su dati mobili
+   Host: decolink.ft2.it
+   Stazione: si sceglie dalla tendina dopo aver fatto l'accesso (vedi sopra);
+   non e' piu' un codice inventato al momento, ma una stazione registrata sul
+   server, con i suoi operatori autorizzati.
+   Sul telefono: Collegamento = Relay, stesso host, stesse credenziali.
    E' l'unica modalita' che funziona sempre: PC e telefono escono entrambi
    verso il relay, quindi non c'e' nessun NAT da bucare.
 
@@ -66,15 +96,20 @@ Diagnostica (da prompt dei comandi):
 
 CARTELLA server\
 ----------------
-Serve SOLO per la modalita' Relay, e va su un server con IP pubblico (non su
-questo PC): hf_relay.py accoppia due client che entrano nella stessa stanza.
-   python3 hf_relay.py 5555
-   (avvio automatico: hf-relay.service per systemd)
-Se si usa community.ft2.it il relay e' gia' attivo e non serve fare nulla.
+Serve SOLO a chi vuole ospitare il proprio gateway, e va su un server con IP
+pubblico (non su questo PC). Sono due servizi che lavorano insieme:
+   decolink_web.py     registrazione, login, pannello di gestione
+   decolink_relay.py   inoltro di audio e comandi CAT
+Il relay da solo non basta: senza il servizio web non ci sono token da
+verificare e nessuno riesce a entrare.
+Istruzioni complete in server\LEGGIMI.md.
+Se si usa decolink.ft2.it il gateway e' gia' attivo e serve solo l'accesso.
 
 
 SUL FILO
 --------
-Protocollo HFGW v1: UDP, header 22 byte big-endian
+Protocollo HFGW v2: UDP, header 22 byte big-endian
    "HFGW" | versione | flag | seq | t_ms | rate
 seguito da PCM int16 mono 48 kHz, 10 ms per pacchetto (~770 kbit/s).
+La registrazione porta il token di accesso; la v1, senza autenticazione, non e'
+piu' accettata dal relay.

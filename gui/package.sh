@@ -12,8 +12,8 @@
 set -e
 
 MINGW=/c/msys64/mingw64
-SRC=/c/hf-gateway/gui
-OUT=/c/hf-gateway/dist/Decolink
+SRC=/c/decolink/gui
+OUT=/c/decolink/dist/Decolink
 
 [ -f "$SRC/build/decolink.exe" ] || { echo "manca build/decolink.exe: esegui prima gui/build.bat"; exit 1; }
 
@@ -49,10 +49,14 @@ for i in $(seq 1 10); do
   [ "$n" -eq 0 ] && break
 done
 
-# relay per il VPS (serve solo a chi vuole ospitare il proprio relay)
+# Parte server: serve a chi ospita il gateway sul proprio VPS. Si copia tutto il
+# gruppo (relay, servizio di accesso, amministrazione) perche' i pezzi non
+# funzionano separati: il relay senza il servizio web non ha token da verificare.
 mkdir -p "$OUT/server"
-cp /c/hf-gateway/server/hf_relay.py "$OUT/server/" 2>/dev/null || true
-cp /c/hf-gateway/server/hf-relay.service "$OUT/server/" 2>/dev/null || true
+for f in decolink_relay.py decolink_web.py decolink_db.py decolink_token.py \
+         decolink_admin.py decolink-relay.service decolink-web.service LEGGIMI.md; do
+    cp "/c/decolink/server/$f" "$OUT/server/" 2>/dev/null || true
+done
 
 # ---- verifica in ambiente pulito (senza MSYS2 nel PATH) ----
 echo "verifica con PATH ripulito..."

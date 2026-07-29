@@ -1,0 +1,43 @@
+# systemd unit per il relay UDP di Decolink su un VPS (es. decolink.ft2.it)
+#
+# Il relay inoltra audio e comandi CAT fra la radio e chi opera da remoto, ma
+# non decide nulla da solo: chi puo' entrare e con che poteri sta nel database,
+# che il relay rilegge ogni pochi secondi. Va quindi installato accanto al
+# servizio web, sulla stessa macchina e con lo stesso database.
+#
+# Installazione:
+#   sudo mkdir -p /opt/decolink
+#   sudo cp decolink_*.py /opt/decolink/
+#   sudo cp decolink-relay.service decolink-web.service /etc/systemd/system/
+#   sudo useradd --system --home /opt/decolink --shell /usr/sbin/nologin decolink
+#   sudo chown -R decolink:decolink /opt/decolink
+#   sudo -u decolink python3 /opt/decolink/decolink_admin.py init   # primo accesso
+#   sudo ufw allow 5555/udp
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now decolink-relay decolink-web
+#   journalctl -u decolink-relay -f      # chi entra, chi trasmette, chi viene respinto
+
+[Unit]
+Description=Decolink relay (audio e CAT autenticati per stazioni remote)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=decolink
+Group=decolink
+WorkingDirectory=/opt/decolink
+ExecStart=/usr/bin/python3 /opt/decolink/decolink_relay.py 5555
+Restart=always
+RestartSec=3
+
+# Utente fisso e non DynamicUser: database e chiave di firma sono gli stessi del
+# servizio web, e devono restare leggibili da entrambi fra un riavvio e l'altro.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/opt/decolink
+
+[Install]
+WantedBy=multi-user.target

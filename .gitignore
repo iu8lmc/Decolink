@@ -3,3 +3,10 @@ build/
 hfgw.cfg
 dist/
 _*.txt
+__pycache__/
+# Database e chiave di firma del gateway: contengono utenti, password e la
+# chiave con cui si emettono i token. Non devono finire nel repository.
+decolink.db
+decolink.db-wal
+decolink.db-shm
+decolink.key

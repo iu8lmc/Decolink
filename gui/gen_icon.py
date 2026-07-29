@@ -44,6 +44,6 @@ for x in range(int(S * 0.16), int(S * 0.86)):
 d.line(pts, fill=GREEN, width=int(S * 0.028), joint="curve")
 
 sizes = [16, 24, 32, 48, 64, 128, 256]
-img.save(r"C:\hf-gateway\gui\hfgw.ico", sizes=[(s, s) for s in sizes])
-img.resize((256, 256), Image.LANCZOS).save(r"C:\hf-gateway\gui\hfgw.png")
+img.save(r"C:\decolink\gui\hfgw.ico", sizes=[(s, s) for s in sizes])
+img.resize((256, 256), Image.LANCZOS).save(r"C:\decolink\gui\hfgw.png")
 print("icona creata: hfgw.ico (%s) + hfgw.png" % ", ".join(str(s) for s in sizes))

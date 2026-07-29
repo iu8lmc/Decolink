@@ -29,9 +29,15 @@
 #include <QHostInfo>
 #include <QIcon>
 #include <QHBoxLayout>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMediaDevices>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
 #include <QProgressBar>
 #include <QPushButton>
 #include <QSerialPort>
@@ -56,10 +62,14 @@ namespace {
 constexpr int kRate      = 48000;
 constexpr int kFrame     = kRate / 100;   // 480 campioni = 10 ms
 constexpr int kHdrSize   = 22;
+// v2: per entrare nel relay serve un token firmato dal servizio di accesso.
+// La v1, in cui bastava indovinare il nome della stanza, non e' piu' accettata.
+constexpr quint8 kProtoVer = 2;
 constexpr quint8 kFlagAudio = 0, kFlagPing = 1, kFlagPong = 2,
                  kFlagRegister = 3, kFlagPeerUp = 4,
                  kFlagCatReq = 5, kFlagCatRsp = 6,   // comandi CAT sullo stesso canale
-                 kFlagTxAudio = 7;                   // audio che il telefono vuole trasmettere
+                 kFlagTxAudio = 7,                   // audio che il telefono vuole trasmettere
+                 kFlagDenied = 8;                    // il relay spiega perche' non si entra
 
 void putU32(char* p, quint32 v) { p[0]=char(v>>24); p[1]=char(v>>16); p[2]=char(v>>8); p[3]=char(v); }
 void putU64(char* p, quint64 v) { for (int i = 0; i < 8; ++i) p[i] = char(v >> (56 - 8*i)); }
@@ -70,7 +80,7 @@ QByteArray hfgwPacket(quint8 flags, quint32 seq, const char* payload, int len)
     QByteArray pkt(kHdrSize + qMax(0, len), Qt::Uninitialized);
     char* p = pkt.data();
     std::memcpy(p, "HFGW", 4);
-    p[4] = 1; p[5] = char(flags);
+    p[4] = char(kProtoVer); p[5] = char(flags);
     putU32(p + 6, seq);
     putU64(p + 10, quint64(QDateTime::currentMSecsSinceEpoch()));
     putU32(p + 18, kRate);
@@ -292,15 +302,16 @@ public:
         m_host = new QLineEdit;
         m_host->setPlaceholderText(QStringLiteral("IP del telefono, oppure host del relay"));
         m_port = new QSpinBox; m_port->setRange(1, 65535); m_port->setValue(5555);
-        m_room = new QLineEdit;
-        m_room->setPlaceholderText(QStringLiteral("codice stanza condiviso col telefono"));
+        m_station = new QComboBox;
+        m_station->setEnabled(false);
+        m_station->addItem(QStringLiteral("(accedi per scegliere la stazione)"));
 
         auto* form = new QFormLayout;
         form->addRow(QStringLiteral("Audio della radio"), m_device);
         form->addRow(QStringLiteral("Modalità"), m_mode);
         form->addRow(QStringLiteral("Host"), m_host);
         form->addRow(QStringLiteral("Porta"), m_port);
-        form->addRow(QStringLiteral("Stanza"), m_room);
+        form->addRow(QStringLiteral("Stazione"), m_station);
 
         m_start = new QPushButton(QStringLiteral("Avvia"));
         m_start->setMinimumHeight(34);
@@ -342,12 +353,38 @@ public:
         catLay->addWidget(m_catOn);
         catLay->addWidget(m_catState);
 
+        // ---- accesso: chi sei, e che cosa ti lasciano fare ----
+        m_authHost = new QLineEdit;
+        m_authHost->setPlaceholderText(QStringLiteral("server di accesso (es. decolink.ft2.it)"));
+        m_email = new QLineEdit;
+        m_email->setPlaceholderText(QStringLiteral("la tua email"));
+        m_password = new QLineEdit;
+        m_password->setEchoMode(QLineEdit::Password);
+        m_password->setPlaceholderText(QStringLiteral("password"));
+        m_remember = new QCheckBox(QStringLiteral("Ricorda la password (salvata in chiaro fra le impostazioni)"));
+        m_login = new QPushButton(QStringLiteral("Accedi"));
+        m_authState = new QLabel(QStringLiteral("non collegato"));
+        m_authState->setWordWrap(true);
+        m_authState->setStyleSheet(QStringLiteral("color:#666"));
+
+        auto* authForm = new QFormLayout;
+        authForm->addRow(QStringLiteral("Server di accesso"), m_authHost);
+        authForm->addRow(QStringLiteral("Email"), m_email);
+        authForm->addRow(QStringLiteral("Password"), m_password);
+        auto* authBox = new QGroupBox(QStringLiteral("Accesso"));
+        auto* authLay = new QVBoxLayout(authBox);
+        authLay->addLayout(authForm);
+        authLay->addWidget(m_remember);
+        authLay->addWidget(m_login);
+        authLay->addWidget(m_authState);
+
         auto* box = new QGroupBox(QStringLiteral("Stato"));
         auto* bl = new QVBoxLayout(box);
         bl->addWidget(m_status);
         bl->addWidget(m_stats);
 
         auto* lay = new QVBoxLayout(this);
+        lay->addWidget(authBox);
         lay->addLayout(form);
         lay->addLayout(row);
         lay->addWidget(catBox);
@@ -357,12 +394,25 @@ public:
         connect(m_start, &QPushButton::clicked, this, [this]{ m_running ? stop() : start(); });
         connect(m_mode, &QComboBox::currentIndexChanged, this, &Client::syncFields);
         connect(m_catOn, &QCheckBox::toggled, this, &Client::toggleCat);
+        connect(m_login, &QPushButton::clicked, this, [this]{ login(); });
+        connect(m_password, &QLineEdit::returnPressed, this, [this]{ login(); });
+        // Cambiare stazione a collegamento aperto richiede un token nuovo: il
+        // vecchio vale solo per la stazione per cui e' stato emesso.
+        connect(m_station, &QComboBox::activated, this, [this](int){
+            if (m_token.isEmpty() || m_station->currentData().toString() == m_tokenStation) return;
+            login(m_station->currentData().toString());
+        });
         m_catPoll.setInterval(2000);
         connect(&m_catPoll, &QTimer::timeout, this, &Client::refreshCatState);
 
         // registrazione periodica alla stanza / keepalive verso casa
         m_keepAlive.setInterval(5000);
         connect(&m_keepAlive, &QTimer::timeout, this, &Client::sendRegister);
+        // Rinnovo del token prima che scada: senza, una stazione lasciata
+        // accesa cadrebbe da sola dopo un'ora.
+        m_renew.setInterval(60000);
+        connect(&m_renew, &QTimer::timeout, this, &Client::renewIfNeeded);
+        m_renew.start();
         // aggiornamento contatori
         m_uiTimer.setInterval(500);
         connect(&m_uiTimer, &QTimer::timeout, this, &Client::refreshStats);
@@ -385,8 +435,12 @@ public:
         if (m_catWanted || ci >= 0)
             QTimer::singleShot(0, this, [this] { m_catOn->setChecked(true); });
         // --start: comincia subito a mandare l'audio, senza premere Avvia. Serve
-        // per lasciarlo acceso in stazione senza doverci tornare sopra.
-        if (args.contains(QStringLiteral("--start")))
+        // per lasciarlo acceso in stazione senza doverci tornare sopra. Con il
+        // relay bisogna prima avere un token, quindi l'avvio aspetta l'accesso.
+        m_autoStart = args.contains(QStringLiteral("--start"));
+        if (!m_email->text().isEmpty() && !m_password->text().isEmpty())
+            QTimer::singleShot(200, this, [this] { login(); });
+        else if (m_autoStart && m_mode->currentIndex() != ModeRelay)
             QTimer::singleShot(300, this, [this] { if (!m_running) start(); });
     }
 
@@ -397,13 +451,13 @@ private slots:
     {
         int const m = m_mode->currentIndex();
         m_host->setEnabled(m != ModeListen);
-        m_room->setEnabled(m == ModeRelay);
+        m_station->setEnabled(m == ModeRelay && m_station->count() > 0 && !m_token.isEmpty());
         switch (m) {
         case ModeLan:
             m_host->setPlaceholderText(QStringLiteral("IP del telefono sulla rete locale"));
             break;
         case ModeRelay:
-            m_host->setPlaceholderText(QStringLiteral("host del relay (es. community.ft2.it)"));
+            m_host->setPlaceholderText(QStringLiteral("host del relay (es. decolink.ft2.it)"));
             break;
         default:
             m_host->setPlaceholderText(QStringLiteral("(il telefono chiama questa porta)"));
@@ -411,12 +465,144 @@ private slots:
         }
     }
 
+    // Chiede al servizio di accesso un token per la stazione indicata (o per
+    // l'unica disponibile, se ce n'e' una sola). Il token e' quello che il relay
+    // controllera' a ogni registrazione: senza, non si entra.
+    void login(const QString& stazione = QString())
+    {
+        QString host = m_authHost->text().trimmed();
+        if (host.isEmpty()) { setAuthState(QStringLiteral("manca il server di accesso"), true); return; }
+        if (m_email->text().trimmed().isEmpty() || m_password->text().isEmpty()) {
+            setAuthState(QStringLiteral("servono email e password"), true); return;
+        }
+        if (m_authPending) return;
+
+        // Senza schema si assume HTTPS: se l'indirizzo partisse in chiaro per
+        // distrazione, la password se ne andrebbe in giro leggibile. Chi vuole
+        // provare in locale scrive "http://" a mano.
+        if (!host.contains(QStringLiteral("://")))
+            host.prepend(QStringLiteral("https://"));
+
+        QJsonObject corpo;
+        corpo.insert(QStringLiteral("email"), m_email->text().trimmed());
+        corpo.insert(QStringLiteral("password"), m_password->text());
+        QString const voluta = stazione.isEmpty() ? m_wantStation : stazione;
+        if (!voluta.isEmpty()) corpo.insert(QStringLiteral("station"), voluta);
+
+        QNetworkRequest req{QUrl(host + QStringLiteral("/api/login"))};
+        req.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
+        req.setTransferTimeout(10000);
+
+        m_authPending = true;
+        m_login->setEnabled(false);
+        setAuthState(QStringLiteral("accesso in corso…"));
+        QNetworkReply* rep = m_net.post(req, QJsonDocument(corpo).toJson(QJsonDocument::Compact));
+        connect(rep, &QNetworkReply::finished, this, [this, rep] {
+            rep->deleteLater();
+            m_authPending = false;
+            m_login->setEnabled(true);
+            onLoginReply(rep);
+        });
+    }
+
+    void onLoginReply(QNetworkReply* rep)
+    {
+        QByteArray const grezzo = rep->readAll();
+        QJsonObject const r = QJsonDocument::fromJson(grezzo).object();
+
+        // Un errore di rete senza corpo JSON e' un problema di collegamento, non
+        // di credenziali: distinguerli evita di far cercare all'utente una
+        // password sbagliata quando in realta' il server non risponde.
+        if (r.isEmpty()) {
+            setAuthState(rep->error() == QNetworkReply::NoError
+                             ? QStringLiteral("risposta incomprensibile dal server")
+                             : QStringLiteral("server non raggiungibile: %1").arg(rep->errorString()),
+                         true);
+            return;
+        }
+
+        // Piu' stazioni disponibili: si popola la tendina e si lascia scegliere.
+        if (!r.value(QStringLiteral("ok")).toBool()) {
+            fillStations(r.value(QStringLiteral("stations")).toArray());
+            QString const motivo = r.value(QStringLiteral("error")).toString(
+                QStringLiteral("accesso rifiutato"));
+            setAuthState(motivo, !r.value(QStringLiteral("need_station")).toBool());
+            return;
+        }
+
+        m_token = r.value(QStringLiteral("token")).toString();
+        m_tokenStation = r.value(QStringLiteral("station")).toString();
+        m_wantStation = m_tokenStation;
+        m_callsign = r.value(QStringLiteral("callsign")).toString();
+        m_role = r.value(QStringLiteral("role")).toString();
+        m_canTx = r.value(QStringLiteral("can_transmit")).toBool();
+        int const dura = r.value(QStringLiteral("expires_in")).toInt(3600);
+        m_tokenExp = QDateTime::currentSecsSinceEpoch() + dura;
+        fillStations(r.value(QStringLiteral("stations")).toArray());
+
+        // Relay e servizio di accesso stanno sulla stessa macchina: se l'host
+        // del relay non e' stato scritto a mano, lo si ricava da qui invece di
+        // farlo cercare all'utente.
+        if (m_host->text().trimmed().isEmpty()) {
+            QString h = m_authHost->text().trimmed();
+            h.remove(QStringLiteral("https://")); h.remove(QStringLiteral("http://"));
+            m_host->setText(h.section(QLatin1Char('/'), 0, 0).section(QLatin1Char(':'), 0, 0));
+        }
+
+        QString const ruolo = m_role == QLatin1String("own") ? QStringLiteral("titolare")
+                            : m_role == QLatin1String("opr") ? QStringLiteral("operatore")
+                                                             : QStringLiteral("ascoltatore");
+        setAuthState(QStringLiteral("%1 — stazione %2, come %3%4")
+                         .arg(m_callsign, m_tokenStation, ruolo,
+                              m_canTx ? QString() : QStringLiteral(" (solo ascolto)")));
+        saveSettings();
+
+        // Se il collegamento era gia' aperto, il token nuovo entra in vigore col
+        // prossimo keepalive senza interrompere l'audio.
+        if (m_running) sendRegister();
+        else if (m_autoStart) { m_autoStart = false; QTimer::singleShot(200, this, [this]{ start(); }); }
+    }
+
+    void fillStations(const QJsonArray& elenco)
+    {
+        if (elenco.isEmpty()) return;
+        m_station->clear();
+        for (QJsonValue const& v : elenco) {
+            QJsonObject const o = v.toObject();
+            QString const slug = o.value(QStringLiteral("slug")).toString();
+            QString const nome = o.value(QStringLiteral("name")).toString();
+            m_station->addItem(nome.isEmpty() ? slug : QStringLiteral("%1 — %2").arg(slug, nome), slug);
+        }
+        m_station->setEnabled(true);
+        int const i = m_station->findData(m_tokenStation.isEmpty() ? m_wantStation : m_tokenStation);
+        if (i >= 0) m_station->setCurrentIndex(i);
+    }
+
+    // Il token dura un'ora: lo si rinnova qualche minuto prima, cosi' una
+    // stazione lasciata accesa da sola non cade a meta' di un QSO.
+    void renewIfNeeded()
+    {
+        if (m_token.isEmpty() || m_authPending) return;
+        if (m_password->text().isEmpty()) return;      // niente password in memoria: si rifara' a mano
+        if (QDateTime::currentSecsSinceEpoch() < m_tokenExp - 300) return;
+        login(m_tokenStation);
+    }
+
+    void setAuthState(const QString& testo, bool errore = false)
+    {
+        m_authState->setText(testo);
+        m_authState->setStyleSheet(errore ? QStringLiteral("color:#a33")
+                                          : QStringLiteral("color:#666"));
+    }
+
     void sendRegister()
     {
         if (!m_running || !m_sock) return;
         if (m_mode->currentIndex() != ModeRelay) return;
-        QByteArray const room = m_room->text().trimmed().toUtf8();
-        m_sock->writeDatagram(hfgwPacket(kFlagRegister, 0, room.constData(), room.size()),
+        // "gw": questo programma e' il lato radio della stazione. Il relay usa
+        // questa parola per sapere a chi mandare l'audio da trasmettere.
+        QByteArray const corpo = (QStringLiteral("gw ") + m_token).toUtf8();
+        m_sock->writeDatagram(hfgwPacket(kFlagRegister, 0, corpo.constData(), corpo.size()),
                               m_dstAddr, quint16(m_port->value()));
     }
 
@@ -512,10 +698,28 @@ private slots:
                                       from, fromPort);
                 continue;
             }
+            // Il relay ci ha chiusi fuori e dice perche'. Se e' solo il token
+            // scaduto lo si rinnova da soli, che e' il caso normale dopo un'ora;
+            // negli altri casi si ferma tutto e si riporta il motivo, perche'
+            // continuare a bussare non servirebbe a niente.
+            if (flags == kFlagDenied) {
+                QString const motivo = QString::fromUtf8(dg.mid(kHdrSize));
+                if (motivo.contains(QStringLiteral("scaduto")) && !m_password->text().isEmpty()) {
+                    setStatus(QStringLiteral("token scaduto: lo rinnovo"));
+                    login(m_tokenStation);
+                } else {
+                    m_token.clear();
+                    setStatus(QStringLiteral("il relay ha rifiutato il collegamento: %1").arg(motivo));
+                    setAuthState(motivo, true);
+                    if (m_running) stop();
+                }
+                continue;
+            }
             if (flags == kFlagPeerUp) {
                 setStatus(QStringLiteral("il telefono è entrato nella stanza"));
             } else if (flags == kFlagRegister) {
-                setStatus(QStringLiteral("registrato sul relay"));
+                setStatus(QStringLiteral("registrato sul relay come %1 (%2)")
+                              .arg(m_callsign, m_tokenStation));
             }
         }
     }
@@ -621,8 +825,9 @@ private:
             }
             m_dstAddr = info.addresses().first();
         }
-        if (m == ModeRelay && m_room->text().trimmed().isEmpty()) {
-            setStatus(QStringLiteral("manca il codice stanza")); return;
+        if (m == ModeRelay && m_token.isEmpty()) {
+            setStatus(QStringLiteral("accedi prima: il relay non accetta collegamenti senza credenziali"));
+            return;
         }
 
         m_sock = new QUdpSocket(this);
@@ -675,7 +880,7 @@ private:
     void setFieldsEnabled(bool on)
     {
         m_device->setEnabled(on); m_mode->setEnabled(on); m_port->setEnabled(on);
-        if (on) syncFields(); else { m_host->setEnabled(false); m_room->setEnabled(false); }
+        if (on) syncFields(); else { m_host->setEnabled(false); m_station->setEnabled(false); }
     }
 
     void loadSettings()
@@ -684,7 +889,16 @@ private:
         m_mode->setCurrentIndex(s.value(QStringLiteral("mode"), 0).toInt());
         m_host->setText(s.value(QStringLiteral("host")).toString());
         m_port->setValue(s.value(QStringLiteral("port"), 5555).toInt());
-        m_room->setText(s.value(QStringLiteral("room")).toString());
+        m_authHost->setText(s.value(QStringLiteral("authHost"),
+                                    QStringLiteral("decolink.ft2.it")).toString());
+        m_email->setText(s.value(QStringLiteral("email")).toString());
+        m_wantStation = s.value(QStringLiteral("station")).toString();
+        // La password torna solo se l'utente ha chiesto di ricordarla: serve a
+        // chi lascia la stazione accesa e la vuole vedere ripartire da sola dopo
+        // un riavvio, senza qualcuno davanti alla tastiera.
+        m_remember->setChecked(s.value(QStringLiteral("remember"), false).toBool());
+        if (m_remember->isChecked())
+            m_password->setText(s.value(QStringLiteral("password")).toString());
         m_catBaud->setCurrentText(s.value(QStringLiteral("catBaud"), QStringLiteral("38400")).toString());
         m_catTcpPort->setValue(s.value(QStringLiteral("catTcpPort"), 4532).toInt());
         QString const cp = s.value(QStringLiteral("catPort")).toString();
@@ -704,7 +918,16 @@ private:
         s.setValue(QStringLiteral("mode"), m_mode->currentIndex());
         s.setValue(QStringLiteral("host"), m_host->text());
         s.setValue(QStringLiteral("port"), m_port->value());
-        s.setValue(QStringLiteral("room"), m_room->text());
+        s.setValue(QStringLiteral("authHost"), m_authHost->text());
+        s.setValue(QStringLiteral("email"), m_email->text());
+        s.setValue(QStringLiteral("station"), m_wantStation);
+        s.setValue(QStringLiteral("remember"), m_remember->isChecked());
+        if (m_remember->isChecked())
+            s.setValue(QStringLiteral("password"), m_password->text());
+        else
+            s.remove(QStringLiteral("password"));
+        // Il token non si salva: dura un'ora e si riottiene al volo. Scriverlo
+        // sul disco allungherebbe soltanto la vita a una credenziale rubata.
         s.setValue(QStringLiteral("device"), m_device->currentText());
         s.setValue(QStringLiteral("catPort"), m_catPort->currentText().section(QLatin1Char(' '), 0, 0));
         s.setValue(QStringLiteral("catBaud"), m_catBaud->currentText());
@@ -713,12 +936,23 @@ private:
         s.setValue(QStringLiteral("rigOut"), m_rigOut->currentText());
     }
 
-    QComboBox *m_device, *m_mode;
-    QLineEdit *m_host, *m_room;
+    QComboBox *m_device, *m_mode, *m_station;
+    QLineEdit* m_host;
     QSpinBox* m_port;
     QPushButton* m_start;
     QProgressBar* m_level;
     QLabel *m_status, *m_stats;
+
+    // accesso al gateway
+    QLineEdit *m_authHost, *m_email, *m_password;
+    QCheckBox* m_remember;
+    QPushButton* m_login;
+    QLabel* m_authState;
+    QNetworkAccessManager m_net;
+    QString m_token, m_tokenStation, m_wantStation, m_callsign, m_role;
+    qint64 m_tokenExp {0};
+    bool m_canTx {false}, m_authPending {false}, m_autoStart {false};
+    QTimer m_renew;
 
     QComboBox *m_catPort, *m_catBaud;
     QSpinBox* m_catTcpPort;
