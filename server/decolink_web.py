@@ -720,6 +720,13 @@ def main():
     ap.add_argument("--key", help="chiave privata TLS")
     args = ap.parse_args()
 
+    # Log riga per riga: sotto systemd lo stdout e' un tubo, non un terminale, e
+    # senza questo "journalctl -f" non mostrerebbe niente in tempo reale.
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+    except Exception:
+        pass
+
     global SECRET, DB_PATH, HTTPS
     DB_PATH = args.db
     SECRET = tok.load_secret(SECRET_PATH)

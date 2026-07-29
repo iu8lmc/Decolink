@@ -392,6 +392,14 @@ class Relay:
     # ---------------------------------------------------------------- ciclo
 
     def run(self) -> None:
+        # Sotto systemd lo stdout non e' un terminale e Python lo bufferizza a
+        # blocchi: senza questo, "journalctl -f" resterebbe muto per minuti e poi
+        # sputerebbe tutto insieme, proprio mentre si sta guardando chi entra.
+        try:
+            sys.stdout.reconfigure(line_buffering=True)
+        except Exception:
+            pass
+
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1 << 20)
         self.sock.bind(("0.0.0.0", self.port))
