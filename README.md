@@ -49,6 +49,27 @@ sudo systemctl enable --now decolink-relay decolink-web
 Solo Python 3 standard (nessun pip). Il servizio web va messo dietro nginx con
 HTTPS, altrimenti le password viaggiano in chiaro.
 
+#### Avviso via email delle richieste (facoltativo)
+
+Le richieste di accesso compaiono nella pagina della stazione, ma nessuno
+avvisa il titolare: se non guarda, chi ha chiesto resta in attesa. Con queste
+variabili d'ambiente parte una email a ogni richiesta:
+
+```
+DECOLINK_SMTP_HOST=smtp.esempio.it     # senza questa, non si manda nulla
+DECOLINK_SMTP_PORT=587                 # 587 STARTTLS (predefinito), 465 SSL
+DECOLINK_SMTP_USER=decolink@esempio.it
+DECOLINK_SMTP_PASS=...
+DECOLINK_SMTP_FROM=decolink@esempio.it # se manca, si usa l'utente
+DECOLINK_BASE_URL=https://decolink.ft2.it   # per il link al pannello
+```
+
+Si mettono nel file del servizio (`Environment=` in `decolink-web.service`).
+L'invio gira in un thread a parte e non blocca la registrazione: se il server
+di posta non risponde, la richiesta viene registrata lo stesso e in log resta
+la riga dell'invio fallito. Senza `DECOLINK_SMTP_HOST` tutto si comporta come
+prima.
+
 Istruzioni complete, ruoli, gestione dei membri e note di sicurezza:
 **[`server/LEGGIMI.md`](server/LEGGIMI.md)**.
 

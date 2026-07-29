@@ -42,6 +42,7 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import decolink_db as db
+import decolink_mail as mail
 import decolink_token as tok
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -371,11 +372,21 @@ l'accesso resta in attesa.</p>
         # ascoltatore: non vale niente finche' l'utente e' 'pending', ma fa
         # comparire la domanda nella pagina della stazione giusta, che e' dove
         # il titolare la cerchera'.
+        titolare = None
         if slug:
             st = db.station_by_slug(conn, slug)
             if st:
                 db.grant(conn, uid, st["id"], tok.ROLE_LISTENER)
+                titolare = db.user_by_id(conn, st["owner_id"])
         print(f"  registrazione: {call} <{email}> stazione='{slug or '-'}' — in attesa")
+        # Il titolare non ha modo di sapere che c'e' una domanda se non
+        # guardando la pagina: se la posta e' configurata, glielo si dice.
+        if titolare:
+            mail.avvisa_richiesta(titolare["email"], callsign=call, email=email,
+                                  nome=str(dati.get("name", "")).strip(),
+                                  stazione=slug, nota=str(dati.get("note", "")).strip())
+        elif mail.attiva() and not slug:
+            print("  ~ nessuna stazione indicata: nessuno da avvisare")
         return self._send(200, self.form_accesso(
             msg="Richiesta inviata. Riceverai l'accesso quando il titolare l'avrà approvata."))
 
