@@ -73,16 +73,30 @@ fi
 # Il primo avvio deve creare amministratore e chiave di firma prima che i
 # servizi partano: senza un utente attivo nessuno potrebbe entrare, e web e
 # relay creerebbero la chiave per conto loro in ordine imprevedibile.
-if [ ! -f "$DEST/decolink.db" ]; then
+# Non basta guardare se il database esiste: lo creano da soli i due servizi al
+# primo avvio, vuoto. Quello che conta e' se dentro c'e' almeno un utente,
+# altrimenti alla seconda esecuzione questo passaggio sparirebbe in silenzio
+# lasciando un pannello in cui non puo' entrare nessuno.
+UTENTI=$(sudo -u "$UTENTE" python3 - "$DEST/decolink.db" <<'PY' 2>/dev/null || echo 0
+import sqlite3, sys
+try:
+    c = sqlite3.connect(sys.argv[1])
+    print(c.execute("SELECT count(*) FROM users").fetchone()[0])
+except Exception:
+    print(0)
+PY
+)
+
+if [ "${UTENTI:-0}" = "0" ]; then
     echo
     if [ -t 0 ]; then
-        echo "Nessun database: creo il primo amministratore e la prima stazione."
+        echo "Nessun utente: creo il primo amministratore e la prima stazione."
         echo
         sudo -u "$UTENTE" python3 "$DEST/decolink_admin.py" init
     else
         # L'amministratore va creato da chi ha davanti la tastiera: la sua
         # password non deve passare per un file, una variabile o un log.
-        echo "Nessun database. Il primo amministratore va creato a mano:"
+        echo "Nessun utente registrato. Il primo amministratore va creato a mano:"
         echo "    sudo -u $UTENTE python3 $DEST/decolink_admin.py init"
         echo "Finche' non esiste, nessuno puo' entrare nel pannello."
     fi
