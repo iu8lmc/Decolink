@@ -55,6 +55,9 @@
 #include <QElapsedTimer>
 #include <QMutex>
 
+#include "dlproto.h"
+#include "opusvoce.h"
+
 #include <cmath>
 
 namespace {
@@ -306,12 +309,22 @@ public:
         m_station->setEnabled(false);
         m_station->addItem(QStringLiteral("(accedi per scegliere la stazione)"));
 
+        // Profilo audio: quanta banda occupare. Nell'elenco ci sono solo i
+        // profili che funzionano davvero — i digitali senza perdite e
+        // l'emergenza sono progettati (PROTOCOLLO.md) ma non ancora fatti, e
+        // metterli qui sarebbe promettere il vuoto.
+        m_profile = new QComboBox;
+        m_profile->addItem(QStringLiteral("Voce — Opus, ~28 kbit/s (consigliato)"), dl::PVoce);
+        m_profile->addItem(QStringLiteral("CW — Opus banda stretta, ~15 kbit/s"), dl::PCw);
+        m_profile->addItem(QStringLiteral("PCM 48 kHz — 786 kbit/s, per client vecchi"), dl::PPcm48);
+
         auto* form = new QFormLayout;
         form->addRow(QStringLiteral("Audio della radio"), m_device);
         form->addRow(QStringLiteral("Modalità"), m_mode);
         form->addRow(QStringLiteral("Host"), m_host);
         form->addRow(QStringLiteral("Porta"), m_port);
         form->addRow(QStringLiteral("Stazione"), m_station);
+        form->addRow(QStringLiteral("Profilo audio"), m_profile);
 
         m_start = new QPushButton(QStringLiteral("Avvia"));
         m_start->setMinimumHeight(34);
@@ -395,6 +408,12 @@ public:
         connect(m_mode, &QComboBox::currentIndexChanged, this, &Client::syncFields);
         connect(m_catOn, &QCheckBox::toggled, this, &Client::toggleCat);
         connect(m_login, &QPushButton::clicked, this, [this]{ login(); });
+        // Cambiare profilo a collegamento aperto rifa' i codec al volo: non c'e'
+        // motivo di far staccare e riattaccare per passare da fonia a CW.
+        connect(m_profile, &QComboBox::currentIndexChanged, this, [this](int){
+            if (m_running) { apriCodec(); m_acc.clear(); m_tempoCampioni = 0; }
+            saveSettings();
+        });
         connect(m_password, &QLineEdit::returnPressed, this, [this]{ login(); });
         // Cambiare stazione a collegamento aperto richiede un token nuovo: il
         // vecchio vale solo per la stazione per cui e' stato emesso.
@@ -665,6 +684,12 @@ private slots:
             QByteArray dg; dg.resize(int(m_sock->pendingDatagramSize()));
             QHostAddress from; quint16 fromPort = 0;
             m_sock->readDatagram(dg.data(), dg.size(), &from, &fromPort);
+            m_bytesEntrata += quint64(dg.size()) + 28;
+
+            // Prima si prova la v3, che e' il formato con cui viaggia l'audio
+            // compresso; se non e' quello si ricade sulla v2.
+            if (gestisciV3(dg, from, fromPort)) continue;
+
             if (dg.size() < kHdrSize || std::memcmp(dg.constData(), "HFGW", 4) != 0) continue;
             const uchar* h = reinterpret_cast<const uchar*>(dg.constData());
             quint8 const flags = h[5];
@@ -724,11 +749,122 @@ private slots:
         }
     }
 
+    // Pacchetti del protocollo v3. Restituisce true se il datagramma era suo,
+    // cosi' chi chiama sa di non doverlo trattare come v2.
+    bool gestisciV3(const QByteArray& dg, const QHostAddress& from, quint16 fromPort)
+    {
+        quint8 tipo = 0, prof = 0, flag = 0, idSt = 0;
+        quint16 seq = 0;
+        quint32 tempo = 0;
+        if (!dl::leggi(dg, tipo, prof, flag, idSt, seq, tempo)) return false;
+
+        QByteArray const corpo = dg.mid(dl::kHdr);
+
+        switch (tipo) {
+        case dl::TAudioTx: {
+            // Audio che il telefono vuole trasmettere, compresso: si decodifica
+            // e finisce nel CODEC del rig come quello grezzo della v2.
+            if (prof == dl::PPcm48) { feedTx(corpo); break; }
+            if (!m_opusIn.pronto() && !m_opusIn.apri(24000, 6000)) break;
+            // Un salto nella sequenza vuol dire pacchetti persi: si chiede a
+            // Opus di inventare i pezzi mancanti, altrimenti si sentirebbero
+            // scatti in trasmissione, che e' il posto peggiore per sentirli.
+            if (m_seqTxAtteso != 0 && seq != m_seqTxAtteso) {
+                int const buchi = qBound(0, int(quint16(seq - m_seqTxAtteso)), 5);
+                for (int i = 0; i < buchi; ++i) feedTx(m_opusIn.decodifica(nullptr, 0));
+            }
+            m_seqTxAtteso = quint16(seq + 1);
+            feedTx(m_opusIn.decodifica(corpo.constData(), corpo.size()));
+            break;
+        }
+        case dl::TAudioRx:
+            // Un gateway non ha motivo di ricevere l'audio di un altro: se
+            // arriva, e' un errore di configurazione della stanza.
+            break;
+        case dl::TCat: {
+            QString const rsp = m_rig.isOpen() ? m_rig.handle(QString::fromLatin1(corpo))
+                                               : QStringLiteral("RPRT -1\n");
+            QByteArray const body = rsp.toLatin1();
+            m_sock->writeDatagram(dl::pacchetto(dl::TCat, prof, 0, 0, seq, tempo,
+                                                body.constData(), body.size()),
+                                  from, fromPort);
+            break;
+        }
+        case dl::TCtrl:
+            gestisciCtrl(corpo, from, fromPort);
+            break;
+        case dl::TPing:
+            m_sock->writeDatagram(dl::pacchetto(dl::TPing, prof, 0, 0, seq, tempo),
+                                  from, fromPort);
+            break;
+        default:
+            break;
+        }
+        return true;
+    }
+
+    // Negoziazione: chi ascolta dice cosa sa fare e cosa vuole, il gateway
+    // risponde con quello che offre e conferma cosa ha attivato.
+    void gestisciCtrl(const QByteArray& corpo, const QHostAddress& from, quint16 fromPort)
+    {
+        if (corpo.isEmpty()) return;
+        quint8 const sotto = quint8(corpo.at(0));
+
+        if (sotto == dl::CHello) {
+            char offerta[4] = { char(dl::PVoce), char(dl::PCw), char(dl::PPcm48), 0 };
+            offerta[3] = char(profiloAttivo());        // quello in uso adesso
+            QByteArray corpoRisp;
+            corpoRisp.append(char(dl::COfferta));
+            corpoRisp.append(offerta, 4);
+            m_sock->writeDatagram(dl::pacchetto(dl::TCtrl, profiloAttivo(), 0, 0, 0, 0,
+                                                corpoRisp.constData(), corpoRisp.size()),
+                                  from, fromPort);
+            return;
+        }
+
+        if (sotto == dl::CScegli && corpo.size() >= 2) {
+            quint8 const voluto = quint8(corpo.at(1));
+            int const idx = m_profile->findData(voluto);
+            if (idx >= 0) {
+                m_profile->setCurrentIndex(idx);        // fa scattare apriCodec()
+                setStatus(QStringLiteral("profilo su richiesta del telefono: %1")
+                              .arg(QString::fromLatin1(dl::nomeProfilo(voluto))));
+            }
+            QByteArray att;
+            att.append(char(dl::CAttivo));
+            att.append(char(profiloAttivo()));
+            m_sock->writeDatagram(dl::pacchetto(dl::TCtrl, profiloAttivo(), 0, 0,
+                                                quint16(m_seq), m_tempoCampioni,
+                                                att.constData(), att.size()),
+                                  from, fromPort);
+            return;
+        }
+
+        // Report del ricevente: quanta perdita vede. Si dice a Opus quanta
+        // ridondanza mettere e, se e' tanta, si scende di bitrate.
+        if (sotto == dl::CReport && corpo.size() >= 2) {
+            int const perdita = quint8(corpo.at(1));
+            m_perditaVista = perdita;
+            m_opusOut.perditaAttesa(perdita);
+            if (perdita > 8 && m_opusOut.bitrate() > 12000)
+                m_opusOut.cambiaBitrate(m_opusOut.bitrate() == 24000 ? 16000 : 12000);
+            else if (perdita < 2 && m_opusOut.bitrate() < 24000)
+                m_opusOut.cambiaBitrate(m_opusOut.bitrate() == 12000 ? 16000 : 24000);
+        }
+    }
+
     void onAudioReady()
     {
         if (!m_audioIo) return;
         m_acc += m_audioIo->readAll();
-        int const frameBytes = kFrame * 2;
+
+        // Con Opus il frame e' di 20 ms (960 campioni): e' la misura per cui il
+        // codec e' pensato. In PCM si resta a 10 ms come nella v2, per non
+        // cambiare il passo ai client che la parlano.
+        quint8 const prof = profiloAttivo();
+        int const campioni = (prof == dl::PPcm48) ? kFrame : dl::kOpusFrame;
+        int const frameBytes = campioni * 2;
+
         while (m_acc.size() >= frameBytes) {
             QByteArray const frame = m_acc.left(frameBytes);
             m_acc.remove(0, frameBytes);
@@ -736,14 +872,35 @@ private slots:
             // livello (RMS) per la barra
             const short* s = reinterpret_cast<const short*>(frame.constData());
             double sum = 0;
-            for (int i = 0; i < kFrame; ++i) { double v = s[i] / 32768.0; sum += v * v; }
-            m_rms = 0.8 * m_rms + 0.2 * std::sqrt(sum / kFrame);
+            for (int i = 0; i < campioni; ++i) { double v = s[i] / 32768.0; sum += v * v; }
+            m_rms = 0.8 * m_rms + 0.2 * std::sqrt(sum / campioni);
 
             if (!targetReady()) continue;      // nessun destinatario: non spedisco
-            m_sock->writeDatagram(hfgwPacket(kFlagAudio, m_seq++, frame.constData(), frame.size()),
-                                  m_dstAddr, m_dstPort);
+
+            QByteArray pkt;
+            if (prof == dl::PPcm48) {
+                pkt = hfgwPacket(kFlagAudio, m_seq++, frame.constData(), frame.size());
+            } else {
+                QByteArray const compresso =
+                    m_opusOut.codifica(reinterpret_cast<const qint16*>(frame.constData()));
+                if (compresso.isEmpty()) continue;      // meglio saltare che spedire spazzatura
+                pkt = dl::pacchetto(dl::TAudioRx, prof, dl::FFec, 0, quint16(m_seq++),
+                                    m_tempoCampioni, compresso.constData(), compresso.size());
+                m_tempoCampioni += quint32(campioni);
+            }
+            m_sock->writeDatagram(pkt, m_dstAddr, m_dstPort);
             ++m_sent;
+            m_bytesUscita += quint64(pkt.size()) + 28;   // +28: intestazioni IP e UDP, che si pagano
         }
+    }
+
+    // Il profilo che si sta davvero usando: quello scelto, ma solo se il codec
+    // e' in piedi. Se Opus non parte si torna al PCM invece di restare muti.
+    quint8 profiloAttivo() const
+    {
+        quint8 const scelto = quint8(m_profile->currentData().toUInt());
+        if (scelto == dl::PPcm48) return dl::PPcm48;
+        return m_opusOut.pronto() ? scelto : dl::PPcm48;
     }
 
     // Apre la scheda del rig alla prima richiesta e la chiude quando il telefono
@@ -785,8 +942,23 @@ private slots:
         closeTxIfIdle();
         m_level->setValue(int(qMin(1.0, m_rms * 4.0) * 100));
         if (!m_running) { m_stats->setText(QStringLiteral("—")); return; }
-        m_stats->setText(QStringLiteral("pacchetti inviati: %1   (%2 al secondo attesi: 100)")
-                             .arg(m_sent).arg(m_seq ? QStringLiteral("in corso") : QStringLiteral("in attesa")));
+
+        // La banda si misura, non si stima: e' il numero che dice se il profilo
+        // sta facendo il suo lavoro, e comprende le intestazioni IP e UDP che si
+        // pagano su ogni pacchetto.
+        qint64 const ms = qMax<qint64>(1, m_bandaTimer.elapsed());
+        double const kbps = double(m_bytesUscita) * 8.0 / double(ms);
+        quint8 const prof = profiloAttivo();
+        QString testo = QStringLiteral("%1 — in uscita %2 kbit/s (%3 MB l'ora)   pacchetti %4")
+                            .arg(QString::fromLatin1(dl::nomeProfilo(prof)))
+                            .arg(kbps, 0, 'f', 1)
+                            .arg(kbps * 450.0 / 1000.0, 0, 'f', 0)
+                            .arg(m_sent);
+        if (prof != dl::PPcm48)
+            testo += QStringLiteral("   Opus %1 kbit/s").arg(m_opusOut.bitrate() / 1000);
+        if (m_perditaVista > 0)
+            testo += QStringLiteral("   perdita segnalata %1%").arg(m_perditaVista);
+        m_stats->setText(testo);
     }
 
 private:
@@ -807,6 +979,26 @@ private:
     }
 
     void setStatus(const QString& s) { m_status->setText(s); }
+
+    // Prepara i codec per il profilo scelto. Due istanze separate, una per
+    // verso: la radio manda con la banda del profilo, il telefono puo' mandare
+    // con la sua, e non devono pestarsi lo stato.
+    void apriCodec()
+    {
+        quint8 const scelto = quint8(m_profile->currentData().toUInt());
+        if (scelto == dl::PPcm48) { m_opusOut.chiudi(); m_opusIn.chiudi(); return; }
+
+        // CW: 4 kHz bastano e avanzano per una nota da 700 Hz e per sentire chi
+        // chiama poco fuori frequenza. Fonia: 6 kHz, che coprono un SSB da 2,7
+        // con margine per il fruscio che dice com'e' la banda.
+        int const bitrate = (scelto == dl::PCw) ? 12000 : 24000;
+        int const banda   = (scelto == dl::PCw) ?  4000 :  6000;
+        if (!m_opusOut.apri(bitrate, banda) || !m_opusIn.apri(bitrate, banda)) {
+            setStatus(QStringLiteral("Opus non si avvia (%1): resto sul PCM")
+                          .arg(m_opusOut.errore()));
+            m_opusOut.chiudi(); m_opusIn.chiudi();
+        }
+    }
 
     void start()
     {
@@ -840,6 +1032,11 @@ private:
             delete m_sock; m_sock = nullptr; return;
         }
         connect(m_sock, &QUdpSocket::readyRead, this, &Client::onDatagram);
+
+        apriCodec();
+        m_bytesUscita = m_bytesEntrata = 0;
+        m_tempoCampioni = 0;
+        m_bandaTimer.restart();
 
         // audio dalla radio
         QList<QAudioDevice> const ins = QMediaDevices::audioInputs();
@@ -899,6 +1096,8 @@ private:
         m_remember->setChecked(s.value(QStringLiteral("remember"), false).toBool());
         if (m_remember->isChecked())
             m_password->setText(s.value(QStringLiteral("password")).toString());
+        int const pi = m_profile->findData(s.value(QStringLiteral("profile"), dl::PVoce).toUInt());
+        if (pi >= 0) m_profile->setCurrentIndex(pi);
         m_catBaud->setCurrentText(s.value(QStringLiteral("catBaud"), QStringLiteral("38400")).toString());
         m_catTcpPort->setValue(s.value(QStringLiteral("catTcpPort"), 4532).toInt());
         QString const cp = s.value(QStringLiteral("catPort")).toString();
@@ -922,6 +1121,7 @@ private:
         s.setValue(QStringLiteral("email"), m_email->text());
         s.setValue(QStringLiteral("station"), m_wantStation);
         s.setValue(QStringLiteral("remember"), m_remember->isChecked());
+        s.setValue(QStringLiteral("profile"), m_profile->currentData().toUInt());
         if (m_remember->isChecked())
             s.setValue(QStringLiteral("password"), m_password->text());
         else
@@ -936,7 +1136,7 @@ private:
         s.setValue(QStringLiteral("rigOut"), m_rigOut->currentText());
     }
 
-    QComboBox *m_device, *m_mode, *m_station;
+    QComboBox *m_device, *m_mode, *m_station, *m_profile;
     QLineEdit* m_host;
     QSpinBox* m_port;
     QPushButton* m_start;
@@ -972,6 +1172,14 @@ private:
     QUdpSocket* m_sock {nullptr};
     QByteArray m_acc;
 
+    // profilo audio (protocollo v3)
+    dl::OpusVoce m_opusOut, m_opusIn;   // una per verso: RX della radio, TX dal telefono
+    quint32 m_tempoCampioni {0};
+    quint64 m_bytesUscita {0}, m_bytesEntrata {0};
+    QElapsedTimer m_bandaTimer;
+    quint16 m_seqTxAtteso {0};
+    int m_perditaVista {0};
+
     QHostAddress m_dstAddr, m_peerAddr;
     quint16 m_dstPort {5555}, m_peerPort {0};
     qint64 m_peerSeen {0};
@@ -1002,6 +1210,88 @@ int main(int argc, char** argv)
         for (QAudioDevice const& d : outs) out << "  " << d.description() << "\n";
         out.flush();
         return ins.isEmpty() ? 2 : 0;
+    }
+
+    // --codectest: misura quanta banda occupa ogni profilo, senza radio e senza
+    // rete. Serve a verificare i numeri dichiarati in PROTOCOLLO.md su questa
+    // macchina invece di fidarsi della tabella.
+    if (app.arguments().contains(QStringLiteral("--codectest"))) {
+        QTextStream out(stdout);
+        out << "Decolink — misura dei profili audio\n";
+        out << "libopus " << dl::OpusVoce::versione() << "\n\n";
+
+        // Segnale di prova: parlato finto (fondamentale a 150 Hz con qualche
+        // armonica, inviluppo a sillabe) sopra un fruscio di fondo. Non e' una
+        // voce vera, ma occupa la banda come una voce in SSB, che e' quello che
+        // conta per misurare il codificatore.
+        int const secondi = 30;
+        int const tot = dl::kOpusRate * secondi;
+        QVector<qint16> segnale(tot);
+        double fase1 = 0, fase2 = 0, fase3 = 0;
+        quint32 rnd = 12345;
+        for (int i = 0; i < tot; ++i) {
+            double const t = double(i) / dl::kOpusRate;
+            double const sillaba = 0.5 + 0.5 * std::sin(2 * M_PI * 3.5 * t);   // ~3,5 sillabe/s
+            fase1 += 2 * M_PI * 150.0 / dl::kOpusRate;
+            fase2 += 2 * M_PI * 900.0 / dl::kOpusRate;
+            fase3 += 2 * M_PI * 2100.0 / dl::kOpusRate;
+            rnd = rnd * 1103515245u + 12345u;
+            double const fruscio = (double(int((rnd >> 16) & 0x7FFF)) / 16384.0 - 1.0) * 0.03;
+            double const v = sillaba * (0.35 * std::sin(fase1) + 0.22 * std::sin(fase2)
+                                        + 0.12 * std::sin(fase3)) + fruscio;
+            segnale[i] = qint16(qBound(-32768.0, v * 26000.0, 32767.0));
+        }
+
+        struct Prova { const char* nome; int bitrate; int banda; };
+        Prova const prove[] = {
+            { "voce  (Opus 24k, banda 6 kHz)", 24000, 6000 },
+            { "voce  (Opus 16k, rete lenta)",  16000, 6000 },
+            { "CW    (Opus 12k, banda 4 kHz)", 12000, 4000 },
+        };
+
+        double const pcmKbps = double(kHdrSize + kFrame * 2 + 28) * 8.0 * 100.0 / 1000.0;
+        out << QStringLiteral("%1  %2 kbit/s  %3 MB/ora\n")
+                   .arg(QStringLiteral("PCM 48 kHz (v2, riferimento)"), -32)
+                   .arg(pcmKbps, 8, 'f', 1).arg(pcmKbps * 0.45, 6, 'f', 0);
+
+        for (Prova const& p : prove) {
+            dl::OpusVoce voce;
+            if (!voce.apri(p.bitrate, p.banda)) {
+                out << "  " << p.nome << ": Opus non si avvia — " << voce.errore() << "\n";
+                continue;
+            }
+            qint64 byte = 0, campioniResi = 0;
+            int frame = 0;
+            QElapsedTimer cron; cron.start();
+            for (int i = 0; i + dl::kOpusFrame <= tot; i += dl::kOpusFrame) {
+                QByteArray const c = voce.codifica(segnale.constData() + i);
+                if (c.isEmpty()) { out << "  errore di codifica\n"; break; }
+                // +10 di header v3, +28 di IP/UDP: la banda vera comprende tutto
+                byte += c.size() + dl::kHdr + 28;
+                QByteArray const d = voce.decodifica(c.constData(), c.size());
+                campioniResi += d.size() / 2;
+                ++frame;
+            }
+            qint64 const ms = qMax<qint64>(1, cron.elapsed());
+            double const kbps = double(byte) * 8.0 / double(secondi) / 1000.0;
+            out << QStringLiteral("%1  %2 kbit/s  %3 MB/ora   %4× meno del PCM\n")
+                       .arg(QString::fromLatin1(p.nome), -32)
+                       .arg(kbps, 8, 'f', 1).arg(kbps * 0.45, 6, 'f', 0)
+                       .arg(pcmKbps / kbps, 0, 'f', 1);
+            out << QStringLiteral("      %1 frame, %2 campioni ricostruiti, "
+                                  "%3 s di audio elaborati in %4 ms (%5× tempo reale)\n")
+                       .arg(frame).arg(campioniResi).arg(secondi).arg(ms)
+                       .arg(double(secondi) * 1000.0 / double(ms), 0, 'f', 0);
+        }
+
+        out << "\nNota: non si riporta un rapporto segnale/rumore fra originale e\n"
+               "ricostruito. Opus e' un codificatore percettivo e sposta la fase:\n"
+               "un confronto campione per campione darebbe un numero pessimo anche\n"
+               "quando l'audio e' ottimo, quindi sarebbe una misura falsa.\n"
+               "La qualita' in fonia si giudica ascoltando; la banda si misura, ed e'\n"
+               "quella che vedi qui sopra.\n";
+        out.flush();
+        return 0;
     }
 
     // --cattest COM5 38400: interroga solo la seriale del rig ed esce. Serve a

@@ -50,6 +50,26 @@ MAGIC = b"HFGW"
 VER = 2                       # v1 = senza autenticazione, non piu' accettata
 HDR = struct.Struct("!4sBBIQI")   # magic, ver, flags, seq, t_ms, rate = 22 byte
 
+# Protocollo v3, solo piano dati (l'audio compresso). La registrazione resta
+# sulla v2: l'autenticazione e' una cosa sola e non va duplicata in due formati,
+# mentre l'audio ha bisogno di un'intestazione corta perche' un pacchetto Opus
+# pesa 60 byte e 22 di header sarebbero il 27% del traffico.
+#
+#   byte 0    'D'
+#   byte 1    versione(4) | tipo(4)
+#   byte 2    profilo(4) | flag(4)
+#   byte 3    stazione locale
+#   byte 4-5  seq u16
+#   byte 6-9  marca temporale u32
+#
+# Il relay NON guarda il corpo: gli interessa solo il tipo, per sapere chi ha il
+# diritto di mandarlo e a chi va consegnato. Aggiungere un profilo domani non
+# richiede di aggiornare il server.
+V3_MAGIC = 0x44               # 'D'
+V3_VER = 3
+V3_HDR = 10
+V3_AUDIO_RX, V3_AUDIO_TX, V3_CTRL, V3_CAT, V3_NACK, V3_PING = 0, 1, 2, 3, 4, 5
+
 F_AUDIO, F_PING, F_PONG, F_REGISTER, F_PEERUP = 0, 1, 2, 3, 4
 F_CAT_REQ, F_CAT_RSP = 5, 6
 F_TX_AUDIO = 7
@@ -324,6 +344,73 @@ class Relay:
 
     # ------------------------------------------------------------ inoltro
 
+    def inoltra_v3(self, s: Sessione, tipo: int, seq: int, data: bytes, now: float) -> None:
+        """Inoltro dei pacchetti v3, con le stesse regole della v2.
+
+        Le regole non cambiano perche' non dipendono dal formato: l'audio della
+        radio va dal gateway agli operatori, quello da trasmettere solo dal
+        gateway in giu', e chi e' ascoltatore non manda niente in aria. Cambiare
+        codec non deve poter aggirare un permesso.
+        """
+        membri = self.rooms.get(s.station_id, ())
+
+        if tipo == V3_AUDIO_RX:
+            if not s.is_gw:
+                return
+            for a in membri:
+                if a != s.addr:
+                    self.sock.sendto(data, a)
+                    self.fwd += 1
+            return
+
+        if tipo in (V3_AUDIO_TX, V3_CAT, V3_NACK):
+            if s.is_gw:
+                # Il gateway risponde ai CAT e alle richieste di rimando: quelli
+                # tornano a chi ha chiesto, come nella v2.
+                if tipo in (V3_CAT, V3_NACK):
+                    dest = self.cat_route.pop((s.station_id, seq), None)
+                    if dest:
+                        self.sock.sendto(data, dest[0])
+                        self.fwd += 1
+                    else:
+                        for a in membri:
+                            if a != s.addr:
+                                self.sock.sendto(data, a)
+                                self.fwd += 1
+                return
+            if not s.puo_trasmettere:
+                self.rej += 1
+                return
+            gw = self.gateway_di(s.station_id)
+            if not gw:
+                return
+            if tipo == V3_AUDIO_TX and not self.inizio_tx(s, now):
+                return
+            if tipo in (V3_CAT, V3_NACK):
+                self.cat_route[(s.station_id, seq)] = (s.addr, now)
+            self.sock.sendto(data, gw.addr)
+            self.fwd += 1
+            return
+
+        if tipo == V3_CTRL:
+            # La negoziazione del profilo e i report viaggiano fra operatore e
+            # gateway. Il relay li passa senza leggerli: quale codec si mettano
+            # d'accordo di usare non e' affare suo.
+            if s.is_gw:
+                for a in membri:
+                    if a != s.addr:
+                        self.sock.sendto(data, a)
+                        self.fwd += 1
+            else:
+                gw = self.gateway_di(s.station_id)
+                if gw:
+                    self.sock.sendto(data, gw.addr)
+                    self.fwd += 1
+            return
+
+        if tipo == V3_PING:
+            self.sock.sendto(data, s.addr)   # eco, per misurare il percorso
+
     def inoltra(self, s: Sessione, flags: int, seq: int, data: bytes, now: float) -> None:
         membri = self.rooms.get(s.station_id, ())
 
@@ -415,7 +502,28 @@ class Relay:
             now = time.time()
             try:
                 data, addr = self.sock.recvfrom(8192)
-                if len(data) >= HDR.size and data[:4] == MAGIC:
+
+                # v3 (piano dati): intestazione di 10 byte che comincia per 'D'.
+                # Si guarda per prima perche' e' il formato con cui viaggia la
+                # gran parte del traffico quando i client sono aggiornati.
+                #
+                # Niente 'continue' qui: la manutenzione a fondo ciclo (rilettura
+                # dei permessi, scadenze, statistiche) deve girare comunque, e con
+                # cento pacchetti al secondo non ci arriverebbe mai.
+                if len(data) >= V3_HDR and data[0] == V3_MAGIC and (data[1] >> 4) == V3_VER:
+                    s = self.sess.get(addr)
+                    if s:
+                        s.last_seen = now
+                        tipo = data[1] & 0xF
+                        seq = int.from_bytes(data[4:6], "big")
+                        self.inoltra_v3(s, tipo, seq, data, now)
+                    else:
+                        # Traffico v3 da chi non si e' registrato: la
+                        # registrazione si fa in v2, quindi qui c'e' un client
+                        # che ha saltato il passaggio o un relay riavviato.
+                        self.rifiuta(addr, "non registrato")
+
+                elif len(data) >= HDR.size and data[:4] == MAGIC:
                     _, ver, flags, seq, tms, rate = HDR.unpack_from(data)
                     if ver != VER:
                         # Quasi sempre e' un client v1, cioe' senza login: se non

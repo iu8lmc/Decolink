@@ -10,7 +10,8 @@ Oggi Decolink manda 100 pacchetti al secondo da 982 byte:
 
 ```
   22 byte di header + 960 byte di PCM (480 campioni int16 a 48 kHz)
-  ×100 al secondo  =  98,2 kB/s  =  786 kbit/s  =  354 MB l'ora
+  ×100 al secondo  =  98,2 kB/s  =  786 kbit/s
+  con le intestazioni IP e UDP (28 byte per pacchetto):  808 kbit/s  =  364 MB l'ora
 ```
 
 Su una connessione di casa non si nota. Su dati mobili è mezzo giga per un
@@ -29,15 +30,45 @@ Da qui il principio della v3:
 
 ## 2. I quattro profili
 
-| profilo | banda audio | campionamento | codifica | banda di rete | latenza |
+| profilo | banda audio | codifica | banda di rete | latenza | stato |
 |---|---|---|---|---|---|
-| `VOCE` | 3 kHz | 8 kHz | Opus VoIP 16–24 kbit/s | **~20–28 kbit/s** | 60–120 ms |
-| `CW` | 800 Hz | 8 kHz | Opus 12 kbit/s | **~15 kbit/s** | 40–80 ms |
-| `DIGI` | 6 kHz | 12 kHz | PCM16 lossless (FLAC) | **~110–150 kbit/s** | 0,5–3 s |
-| `EMRG` | 1,6 kHz | 8 kHz | Codec2 700C su FreeDV | **0,7 kbit/s** | 1–2 s |
+| `VOCE` | 6 kHz | Opus VoIP 24 kbit/s | **39,2 kbit/s** | 60–120 ms | **fatto** |
+| `VOCE` rete lenta | 6 kHz | Opus 16 kbit/s | **31,2 kbit/s** | 60–120 ms | **fatto** |
+| `CW` | 4 kHz | Opus 12 kbit/s | **27,2 kbit/s** | 40–80 ms | **fatto** |
+| `DIGI` | 6 kHz | PCM 12 kHz lossless | ~110–150 kbit/s | 0,5–3 s | da fare |
+| `EMRG` | 1,6 kHz | Codec2 700C su FreeDV | 0,7 kbit/s | 1–2 s | da fare |
 
-Rispetto ai 786 kbit/s di oggi: **28× in meno** in fonia, **50×** in CW, **6×**
-sui digitali, e in emergenza un flusso che passa dentro un canale radio HF.
+I numeri dei profili già fatti sono **misurati** con `decolink.exe --codectest` su
+30 secondi di parlato simulato, e comprendono l'header v3 e le intestazioni
+IP/UDP. Contro gli 808 kbit/s del PCM (anch'essi con IP/UDP): **20,6× in meno**
+in fonia, **29,8×** in CW.
+
+### L'intestazione IP/UDP che nessuno conta
+
+La prima misura ha smentito la prima stesura di questo documento, che prometteva
+28 kbit/s in fonia e 15 in CW. Quei numeri contavano solo il payload UDP. Ma ogni
+datagramma paga **28 byte di intestazioni IP e UDP**, e con pacchetti da 70 byte
+sono il 40% del traffico:
+
+```
+  Opus 24 kbit/s, frame da 20 ms:
+     60 byte di audio + 10 di header v3 + 28 di IP/UDP = 98 byte
+     ×50 al secondo = 39,2 kbit/s     (il 29% non è audio)
+
+  Opus 12 kbit/s (CW), frame da 20 ms:
+     30 byte di audio + 10 + 28 = 68 byte
+     ×50 al secondo = 27,2 kbit/s     (il 56% non è audio!)
+```
+
+Sotto i 20 kbit/s di codifica **l'involucro pesa più del contenuto**, e ridurre il
+bitrate del codec smette di servire: da 24 a 12 kbit/s di Opus la banda vera
+scende solo da 39 a 27.
+
+La cura è mandare più frame per datagramma: con 40 ms (due frame Opus) la fonia
+scende a ~31 kbit/s e il CW a ~19; con 60 ms il CW arriva a ~17. Si paga in
+latenza — 40 ms in più sono accettabili in fonia, meno in CW dove il ritmo conta.
+È il primo lavoro in coda dopo questo passo, ed è un guadagno del 20–35% che non
+costa nulla in qualità.
 
 ### Perché i digitali restano lossless
 
@@ -233,18 +264,22 @@ si perde rispetto all'ascolto locale, il profilo non va bene.
 
 ## 10. Ordine dei lavori
 
-1. **Fonia con Opus** — il guadagno più grosso (28×) sul modo più usato, e il
-   profilo che mette in piedi tutta l'infrastruttura di negoziazione.
-2. **Header v3 e negoziazione** — con la v2 che continua a funzionare accanto.
-3. **Adattamento e report** — perché la fonia sia usabile su dati mobili veri.
-4. **`DIGI` lossless con ritrasmissione** — il profilo che deve dimostrare zero
+1. ~~**Fonia con Opus**~~ — **fatto**: 39,2 kbit/s misurati, 20,6× meno del PCM.
+2. ~~**Header v3 e negoziazione**~~ — **fatto**: header da 10 byte, quattro
+   battute di negoziazione, la v2 continua a funzionare accanto.
+3. ~~**`CW` con Opus a banda stretta**~~ — **fatto**: 27,2 kbit/s.
+4. ~~**Adattamento dai report**~~ — **fatto**: la perdita segnalata regola la
+   ridondanza di Opus e fa scendere il bitrate.
+5. **Più frame per datagramma** — 20–35% di banda in meno senza perdere qualità,
+   vedi §2. È il prossimo passo perché è il guadagno più economico che resta.
+6. **`DIGI` lossless con ritrasmissione** — il profilo che deve dimostrare zero
    decodifiche perse.
-5. **`CW` e `CW-KEY`**.
-6. **`EMRG` su FreeDV** — per ultimo, perché richiede due radio per essere
+7. **`CW-KEY`** — solo inviluppo del tasto, ~50 bit/s.
+8. **`EMRG` su FreeDV** — per ultimo, perché richiede due radio per essere
    provato seriamente, non un banco di prova.
 
-Ogni passo è utile da solo: se ci si ferma al secondo, la fonia consuma già
-trenta volte meno di oggi.
+Ogni passo è utile da solo: fermandosi qui, la fonia consuma già venti volte
+meno di prima.
 
 ## 11. Quello che questo protocollo non farà
 
