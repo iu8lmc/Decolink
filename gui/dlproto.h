@@ -53,7 +53,27 @@ enum Profilo : quint8 {
 enum Flag : quint8 {
     FFec    = 0x1,  // il pacchetto porta la ridondanza del precedente
     FMarker = 0x2,  // primo pacchetto dopo una pausa: azzera il buffer
+    FAggr   = 0x4,  // il corpo contiene piu' frame: vedi corpoAggregato()
 };
+
+// Capacita' dichiarate nel CTRL/HELLO. Servono a non mandare a un client
+// vecchio un formato che non sa leggere: chi non dichiara nulla riceve un frame
+// per pacchetto, come prima.
+enum Capacita : quint8 {
+    CapAggr = 0x1,  // sa leggere i pacchetti con piu' frame
+};
+
+// Quanti frame Opus stanno in un datagramma. Non e' una preferenza estetica: su
+// un pacchetto da 70 byte le intestazioni IP e UDP sono 28, cioe' il 40% del
+// traffico. Raggruppare due frame paga quell'involucro una volta invece di due.
+//
+//   1 frame  (20 ms)  fonia 39,2 kbit/s   CW 27,2   latenza minima
+//   2 frame  (40 ms)  fonia ~32           CW ~20    +20 ms
+//   3 frame  (60 ms)  fonia ~30           CW ~18    +40 ms
+constexpr int kMaxAggr = 4;
+
+// Il formato del corpo con piu' frame sta piu' sotto, dopo le funzioni di
+// lettura e scrittura dei numeri: corpoAggregato() e frameDaCorpo().
 
 // Sottotipi di TCtrl. La negoziazione e' un dialogo di quattro battute:
 // chi ascolta dice cosa sa fare, il gateway offre, chi ascolta scegli, il
@@ -75,6 +95,63 @@ inline quint16 getU16(const uchar* p) { return quint16((quint16(p[0]) << 8) | p[
 inline quint32 getU32(const uchar* p)
 {
     return (quint32(p[0]) << 24) | (quint32(p[1]) << 16) | (quint32(p[2]) << 8) | p[3];
+}
+
+// Corpo con piu' frame:
+//   byte 0        numero di frame (1..kMaxAggr)
+//   byte 1..      lunghezze u16 dei primi N-1 frame
+//   poi           i frame uno dietro l'altro; l'ultimo prende quel che resta
+//
+// L'ultima lunghezza non si scrive perche' si ricava: due byte risparmiati su
+// ogni pacchetto sono 400 bit/s a 25 pacchetti al secondo, e a questi livelli
+// di banda ogni byte conta.
+inline QByteArray corpoAggregato(const QList<QByteArray>& frame)
+{
+    QByteArray corpo;
+    corpo.append(char(frame.size()));
+    for (int i = 0; i + 1 < frame.size(); ++i) {
+        char len[2];
+        putU16(len, quint16(frame.at(i).size()));
+        corpo.append(len, 2);
+    }
+    for (QByteArray const& f : frame) corpo.append(f);
+    return corpo;
+}
+
+// Estrae i frame da un corpo. Con aggregato=false il corpo E' il frame, che e'
+// il formato di chi non conosce FAggr. Restituisce una lista vuota se il corpo
+// e' incoerente: su UDP arriva anche roba tagliata, e fidarsi delle lunghezze
+// dichiarate significherebbe leggere fuori dal pacchetto.
+inline QList<QByteArray> frameDaCorpo(const QByteArray& corpo, bool aggregato)
+{
+    QList<QByteArray> out;
+    if (corpo.isEmpty()) return out;
+    if (!aggregato) { out.append(corpo); return out; }
+
+    int const n = int(uchar(corpo.at(0)));
+    if (n < 1 || n > kMaxAggr) return out;
+    int const dati = 1 + 2 * (n - 1);
+    if (corpo.size() < dati) return out;
+
+    const uchar* p = reinterpret_cast<const uchar*>(corpo.constData()) + 1;
+    QList<int> lunghezze;
+    int somma = 0;
+    for (int i = 0; i + 1 < n; ++i) {
+        int const len = int(getU16(p + 2 * i));
+        if (len <= 0 || len > 1500) return out;
+        lunghezze.append(len);
+        somma += len;
+    }
+    int const ultimo = corpo.size() - dati - somma;
+    if (ultimo <= 0) return out;
+    lunghezze.append(ultimo);
+
+    int off = dati;
+    for (int len : lunghezze) {
+        out.append(corpo.mid(off, len));
+        off += len;
+    }
+    return out;
 }
 
 // Confeziona un pacchetto v3. Il corpo puo' essere vuoto (PING, alcuni CTRL).

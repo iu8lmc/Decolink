@@ -314,9 +314,17 @@ public:
         // l'emergenza sono progettati (PROTOCOLLO.md) ma non ancora fatti, e
         // metterli qui sarebbe promettere il vuoto.
         m_profile = new QComboBox;
-        m_profile->addItem(QStringLiteral("Voce — Opus, ~28 kbit/s (consigliato)"), dl::PVoce);
-        m_profile->addItem(QStringLiteral("CW — Opus banda stretta, ~15 kbit/s"), dl::PCw);
-        m_profile->addItem(QStringLiteral("PCM 48 kHz — 786 kbit/s, per client vecchi"), dl::PPcm48);
+        m_profile->addItem(QStringLiteral("Voce — Opus, 39 kbit/s (consigliato)"), dl::PVoce);
+        m_profile->addItem(QStringLiteral("CW — Opus banda stretta, 27 kbit/s"), dl::PCw);
+        m_profile->addItem(QStringLiteral("PCM 48 kHz — 808 kbit/s, per client vecchi"), dl::PPcm48);
+
+        // Quanti frame per pacchetto. Piu' se ne raggruppano, meno volte si paga
+        // l'involucro IP/UDP, ma piu' latenza si aggiunge.
+        m_aggr = new QComboBox;
+        m_aggr->addItem(QStringLiteral("20 ms — latenza minima"), 1);
+        m_aggr->addItem(QStringLiteral("40 ms — 18% di banda in meno (consigliato)"), 2);
+        m_aggr->addItem(QStringLiteral("60 ms — 24% in meno, per reti a consumo"), 3);
+        m_aggr->setCurrentIndex(1);
 
         auto* form = new QFormLayout;
         form->addRow(QStringLiteral("Audio della radio"), m_device);
@@ -325,6 +333,7 @@ public:
         form->addRow(QStringLiteral("Porta"), m_port);
         form->addRow(QStringLiteral("Stazione"), m_station);
         form->addRow(QStringLiteral("Profilo audio"), m_profile);
+        form->addRow(QStringLiteral("Pacchetti da"), m_aggr);
 
         m_start = new QPushButton(QStringLiteral("Avvia"));
         m_start->setMinimumHeight(34);
@@ -411,7 +420,11 @@ public:
         // Cambiare profilo a collegamento aperto rifa' i codec al volo: non c'e'
         // motivo di far staccare e riattaccare per passare da fonia a CW.
         connect(m_profile, &QComboBox::currentIndexChanged, this, [this](int){
-            if (m_running) { apriCodec(); m_acc.clear(); m_tempoCampioni = 0; }
+            if (m_running) { apriCodec(); m_acc.clear(); m_daSpedire.clear(); m_tempoCampioni = 0; }
+            saveSettings();
+        });
+        connect(m_aggr, &QComboBox::currentIndexChanged, this, [this](int){
+            m_daSpedire.clear();       // i frame in attesa erano per il vecchio raggruppamento
             saveSettings();
         });
         connect(m_password, &QLineEdit::returnPressed, this, [this]{ login(); });
@@ -774,7 +787,10 @@ private slots:
                 for (int i = 0; i < buchi; ++i) feedTx(m_opusIn.decodifica(nullptr, 0));
             }
             m_seqTxAtteso = quint16(seq + 1);
-            feedTx(m_opusIn.decodifica(corpo.constData(), corpo.size()));
+            // Il pacchetto puo' contenere piu' frame: si decodificano in ordine.
+            QList<QByteArray> const frame = dl::frameDaCorpo(corpo, flag & dl::FAggr);
+            for (QByteArray const& f : frame)
+                feedTx(m_opusIn.decodifica(f.constData(), f.size()));
             break;
         }
         case dl::TAudioRx:
@@ -811,11 +827,25 @@ private slots:
         quint8 const sotto = quint8(corpo.at(0));
 
         if (sotto == dl::CHello) {
+            // Il secondo byte dice cosa sa fare chi ascolta. Chi non lo manda
+            // (o non dichiara CapAggr) riceve un frame per pacchetto: si perde
+            // il risparmio, non il collegamento.
+            quint8 const cap = corpo.size() >= 2 ? quint8(corpo.at(1)) : 0;
+            bool const prima = m_peerSaAggr;
+            m_peerSaAggr = (cap & dl::CapAggr) != 0;
+            if (m_peerSaAggr != prima) {
+                m_daSpedire.clear();
+                setStatus(m_peerSaAggr
+                              ? QStringLiteral("il telefono legge i pacchetti raggruppati: banda ridotta")
+                              : QStringLiteral("il telefono vuole un frame per pacchetto"));
+            }
             char offerta[4] = { char(dl::PVoce), char(dl::PCw), char(dl::PPcm48), 0 };
             offerta[3] = char(profiloAttivo());        // quello in uso adesso
             QByteArray corpoRisp;
             corpoRisp.append(char(dl::COfferta));
             corpoRisp.append(offerta, 4);
+            corpoRisp.append(char(dl::CapAggr));       // e questo e' cio' che sappiamo fare noi
+            corpoRisp.append(char(aggrAttivo()));      // quanti frame stiamo raggruppando
             m_sock->writeDatagram(dl::pacchetto(dl::TCtrl, profiloAttivo(), 0, 0, 0, 0,
                                                 corpoRisp.constData(), corpoRisp.size()),
                                   from, fromPort);
@@ -884,9 +914,26 @@ private slots:
                 QByteArray const compresso =
                     m_opusOut.codifica(reinterpret_cast<const qint16*>(frame.constData()));
                 if (compresso.isEmpty()) continue;      // meglio saltare che spedire spazzatura
-                pkt = dl::pacchetto(dl::TAudioRx, prof, dl::FFec, 0, quint16(m_seq++),
-                                    m_tempoCampioni, compresso.constData(), compresso.size());
                 m_tempoCampioni += quint32(campioni);
+
+                // Si accumula finche' non si e' raggiunto il raggruppamento
+                // scelto, poi si spedisce tutto in un datagramma.
+                m_daSpedire.append(compresso);
+                if (m_daSpedire.size() < aggrAttivo()) continue;
+
+                if (m_daSpedire.size() == 1) {
+                    // Un frame solo: si manda nel formato semplice, che i client
+                    // che non conoscono FAggr sanno leggere.
+                    QByteArray const& f = m_daSpedire.first();
+                    pkt = dl::pacchetto(dl::TAudioRx, prof, dl::FFec, 0, quint16(m_seq++),
+                                        m_tempoCampioni, f.constData(), f.size());
+                } else {
+                    QByteArray const corpo = dl::corpoAggregato(m_daSpedire);
+                    pkt = dl::pacchetto(dl::TAudioRx, prof, dl::FFec | dl::FAggr, 0,
+                                        quint16(m_seq++), m_tempoCampioni,
+                                        corpo.constData(), corpo.size());
+                }
+                m_daSpedire.clear();
             }
             m_sock->writeDatagram(pkt, m_dstAddr, m_dstPort);
             ++m_sent;
@@ -901,6 +948,16 @@ private slots:
         quint8 const scelto = quint8(m_profile->currentData().toUInt());
         if (scelto == dl::PPcm48) return dl::PPcm48;
         return m_opusOut.pronto() ? scelto : dl::PPcm48;
+    }
+
+    // Quanti frame raggruppare adesso: quello scelto, ma uno solo se dall'altra
+    // parte c'e' qualcuno che non ha dichiarato di saper leggere i pacchetti
+    // aggregati. Risparmiare banda mandando un formato incomprensibile
+    // significa non mandare niente.
+    int aggrAttivo() const
+    {
+        if (!m_peerSaAggr) return 1;
+        return qBound(1, m_aggr->currentData().toInt(), dl::kMaxAggr);
     }
 
     // Apre la scheda del rig alla prima richiesta e la chiude quando il telefono
@@ -954,8 +1011,12 @@ private slots:
                             .arg(kbps, 0, 'f', 1)
                             .arg(kbps * 450.0 / 1000.0, 0, 'f', 0)
                             .arg(m_sent);
-        if (prof != dl::PPcm48)
+        if (prof != dl::PPcm48) {
             testo += QStringLiteral("   Opus %1 kbit/s").arg(m_opusOut.bitrate() / 1000);
+            int const n = aggrAttivo();
+            testo += (n > 1) ? QStringLiteral("   pacchetti da %1 ms").arg(n * 20)
+                             : QStringLiteral("   un frame per pacchetto");
+        }
         if (m_perditaVista > 0)
             testo += QStringLiteral("   perdita segnalata %1%").arg(m_perditaVista);
         m_stats->setText(testo);
@@ -1098,6 +1159,8 @@ private:
             m_password->setText(s.value(QStringLiteral("password")).toString());
         int const pi = m_profile->findData(s.value(QStringLiteral("profile"), dl::PVoce).toUInt());
         if (pi >= 0) m_profile->setCurrentIndex(pi);
+        int const ai = m_aggr->findData(s.value(QStringLiteral("aggr"), 2).toInt());
+        if (ai >= 0) m_aggr->setCurrentIndex(ai);
         m_catBaud->setCurrentText(s.value(QStringLiteral("catBaud"), QStringLiteral("38400")).toString());
         m_catTcpPort->setValue(s.value(QStringLiteral("catTcpPort"), 4532).toInt());
         QString const cp = s.value(QStringLiteral("catPort")).toString();
@@ -1122,6 +1185,7 @@ private:
         s.setValue(QStringLiteral("station"), m_wantStation);
         s.setValue(QStringLiteral("remember"), m_remember->isChecked());
         s.setValue(QStringLiteral("profile"), m_profile->currentData().toUInt());
+        s.setValue(QStringLiteral("aggr"), m_aggr->currentData().toInt());
         if (m_remember->isChecked())
             s.setValue(QStringLiteral("password"), m_password->text());
         else
@@ -1136,7 +1200,7 @@ private:
         s.setValue(QStringLiteral("rigOut"), m_rigOut->currentText());
     }
 
-    QComboBox *m_device, *m_mode, *m_station, *m_profile;
+    QComboBox *m_device, *m_mode, *m_station, *m_profile, *m_aggr;
     QLineEdit* m_host;
     QSpinBox* m_port;
     QPushButton* m_start;
@@ -1179,6 +1243,11 @@ private:
     QElapsedTimer m_bandaTimer;
     quint16 m_seqTxAtteso {0};
     int m_perditaVista {0};
+    QList<QByteArray> m_daSpedire;   // frame in attesa di partire insieme
+    // Si parte dal presupposto che l'altro capo non sappia leggere i pacchetti
+    // raggruppati, e lo si scopre dal suo HELLO: meglio consumare piu' banda che
+    // mandare a un client vecchio un formato che non capisce.
+    bool m_peerSaAggr {false};
 
     QHostAddress m_dstAddr, m_peerAddr;
     quint16 m_dstPort {5555}, m_peerPort {0};
@@ -1242,11 +1311,15 @@ int main(int argc, char** argv)
             segnale[i] = qint16(qBound(-32768.0, v * 26000.0, 32767.0));
         }
 
-        struct Prova { const char* nome; int bitrate; int banda; };
+        struct Prova { const char* nome; int bitrate; int banda; int aggr; };
         Prova const prove[] = {
-            { "voce  (Opus 24k, banda 6 kHz)", 24000, 6000 },
-            { "voce  (Opus 16k, rete lenta)",  16000, 6000 },
-            { "CW    (Opus 12k, banda 4 kHz)", 12000, 4000 },
+            { "voce 24k, pacchetti da 20 ms", 24000, 6000, 1 },
+            { "voce 24k, pacchetti da 40 ms", 24000, 6000, 2 },
+            { "voce 24k, pacchetti da 60 ms", 24000, 6000, 3 },
+            { "voce 16k, pacchetti da 40 ms", 16000, 6000, 2 },
+            { "CW   12k, pacchetti da 20 ms", 12000, 4000, 1 },
+            { "CW   12k, pacchetti da 40 ms", 12000, 4000, 2 },
+            { "CW   12k, pacchetti da 60 ms", 12000, 4000, 3 },
         };
 
         double const pcmKbps = double(kHdrSize + kFrame * 2 + 28) * 8.0 * 100.0 / 1000.0;
@@ -1261,16 +1334,37 @@ int main(int argc, char** argv)
                 continue;
             }
             qint64 byte = 0, campioniResi = 0;
-            int frame = 0;
+            int frame = 0, pacchetti = 0, riletti = 0;
+            QList<QByteArray> gruppo;
             QElapsedTimer cron; cron.start();
             for (int i = 0; i + dl::kOpusFrame <= tot; i += dl::kOpusFrame) {
                 QByteArray const c = voce.codifica(segnale.constData() + i);
                 if (c.isEmpty()) { out << "  errore di codifica\n"; break; }
-                // +10 di header v3, +28 di IP/UDP: la banda vera comprende tutto
-                byte += c.size() + dl::kHdr + 28;
-                QByteArray const d = voce.decodifica(c.constData(), c.size());
-                campioniResi += d.size() / 2;
                 ++frame;
+                gruppo.append(c);
+                if (gruppo.size() < p.aggr) continue;
+
+                // Il pacchetto vero, come finirebbe sul filo: corpo + header v3
+                // + IP/UDP.
+                QByteArray const corpo = (p.aggr == 1) ? gruppo.first()
+                                                       : dl::corpoAggregato(gruppo);
+                byte += corpo.size() + dl::kHdr + 28;
+                ++pacchetti;
+
+                // Si rilegge come farebbe chi riceve: se il formato aggregato
+                // non tornasse indietro identico, il risparmio sarebbe finto.
+                QList<QByteArray> const estratti = dl::frameDaCorpo(corpo, p.aggr > 1);
+                if (estratti.size() == gruppo.size()) {
+                    bool uguali = true;
+                    for (int k = 0; k < estratti.size(); ++k)
+                        if (estratti.at(k) != gruppo.at(k)) { uguali = false; break; }
+                    if (uguali) riletti += estratti.size();
+                }
+                for (QByteArray const& f : estratti) {
+                    QByteArray const d = voce.decodifica(f.constData(), f.size());
+                    campioniResi += d.size() / 2;
+                }
+                gruppo.clear();
             }
             qint64 const ms = qMax<qint64>(1, cron.elapsed());
             double const kbps = double(byte) * 8.0 / double(secondi) / 1000.0;
@@ -1278,9 +1372,9 @@ int main(int argc, char** argv)
                        .arg(QString::fromLatin1(p.nome), -32)
                        .arg(kbps, 8, 'f', 1).arg(kbps * 0.45, 6, 'f', 0)
                        .arg(pcmKbps / kbps, 0, 'f', 1);
-            out << QStringLiteral("      %1 frame, %2 campioni ricostruiti, "
-                                  "%3 s di audio elaborati in %4 ms (%5× tempo reale)\n")
-                       .arg(frame).arg(campioniResi).arg(secondi).arg(ms)
+            out << QStringLiteral("      %1 frame in %2 pacchetti, %3 riletti identici, "
+                                  "%4 campioni resi, %5× tempo reale\n")
+                       .arg(frame).arg(pacchetti).arg(riletti).arg(campioniResi)
                        .arg(double(secondi) * 1000.0 / double(ms), 0, 'f', 0);
         }
 
