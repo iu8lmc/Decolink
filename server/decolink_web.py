@@ -37,6 +37,7 @@ import re
 import secrets
 import ssl
 import sys
+import threading
 import time
 import urllib.parse
 import urllib.request      # serve a chiedere a GitHub qual e' l'ultima release
@@ -219,14 +220,28 @@ def e(s) -> str:
     return html.escape("" if s is None else str(s), quote=True)
 
 
+# Gettone anti-CSRF della richiesta in corso. Sta in un contenitore per thread
+# perche' il server ne serve piu' d'una insieme, e due utenti diversi non devono
+# mai vedersi scambiare il proprio.
+#
+# Serve perche' l'intestazione della pagina contiene il pulsante "esci", che e'
+# una POST come le altre e quindi deve portare il gettone. Senza, l'uscita veniva
+# respinta come "richiesta non valida": il difetto stava proprio nel punto in cui
+# nessuno guarda, perche' l'intestazione la si costruisce una volta e poi la si
+# dimentica.
+_richiesta = threading.local()
+
+
 def page(titolo: str, corpo: str, utente=None, msg: str = "", errore: str = "") -> bytes:
     nav = '<a href="/scarica">scarica il client</a>'
     if utente:
+        csrf = getattr(_richiesta, "csrf", "")
         nav = (f'<span>{e(utente["callsign"])}</span>'
                f'<a href="/">stazioni</a>' + nav)
         if utente["is_admin"]:
             nav += '<a href="/admin">amministrazione</a>'
         nav += ('<form method="post" action="/esci" class="inline">'
+                f'<input type="hidden" name="csrf" value="{e(csrf)}">'
                 '<button class="ghost small">esci</button></form>')
     avviso = ""
     if errore:
@@ -318,6 +333,12 @@ class Handler(BaseHTTPRequestHandler):
         seme = self._cookie(COOKIE) + str(utente["id"])
         return hashlib.sha256((seme + SECRET.hex()).encode()).hexdigest()[:32]
 
+    def _arma_csrf(self, conn, utente) -> None:
+        """Mette il gettone a disposizione di page(), che costruisce il pulsante
+        di uscita. Va chiamato appena si sa chi e' l'utente, prima di produrre
+        qualunque pagina."""
+        _richiesta.csrf = self._csrf(conn, utente) if utente else ""
+
     def _csrf_ok(self, conn, utente, dati) -> bool:
         atteso = self._csrf(conn, utente)
         return secrets.compare_digest(atteso, str(dati.get("csrf", "")))
@@ -339,6 +360,7 @@ class Handler(BaseHTTPRequestHandler):
         conn = db.connect(DB_PATH)
         try:
             utente = self._utente(conn)
+            self._arma_csrf(conn, utente)
             if percorso == "/":
                 return self.pagina_home(conn, utente)
             if percorso == "/accedi":
@@ -370,6 +392,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.post_registrazione(conn, dati)
 
             utente = self._utente(conn)
+            self._arma_csrf(conn, utente)
             if not utente:
                 return self._redirect("/accedi")
             if not self._csrf_ok(conn, utente, dati):
