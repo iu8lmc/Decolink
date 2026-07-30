@@ -61,6 +61,9 @@
 #include "lossless.h"
 #include "opusvoce.h"
 #include "resample.h"
+#ifdef DECOLINK_CON_FREEDV
+#include "freedvlink.h"
+#endif
 
 #include <cmath>
 
@@ -1867,6 +1870,153 @@ int main(int argc, char** argv)
                "quella che vedi qui sopra.\n";
         out.flush();
         return 0;
+    }
+
+    // --emrgtest: prova il collegamento d'emergenza al banco, facendo passare
+    // voce e comandi attraverso un canale rumoroso simulato. Non sostituisce la
+    // prova in aria — servono due radio — ma dice se la catena funziona e a che
+    // rapporto segnale/rumore smette di funzionare.
+    if (app.arguments().contains(QStringLiteral("--emrgtest"))) {
+        QTextStream out(stdout);
+#ifndef DECOLINK_CON_FREEDV
+        out << "Questa copia e' stata compilata senza libcodec2: il collegamento\n"
+               "d'emergenza non c'e'. Su MSYS2:  pacman -S mingw-w64-x86_64-codec2\n";
+        out.flush();
+        return 3;
+#else
+        out << "Decolink — collegamento d'emergenza (FreeDV)\n\n";
+        dl::FreeDvLink link;
+        if (!link.apri()) {
+            out << "  " << link.errore() << "\n";
+            out.flush();
+            return 4;
+        }
+        int const nVoce = link.campioniVoce();
+        int const nModem = link.campioniModem();
+        out << QStringLiteral("  voce  %1: %2 campioni per frame a %3 Hz\n")
+                   .arg(dl::FreeDvLink::nomeModo(FREEDV_MODE_700E)).arg(nVoce)
+                   .arg(link.frequenzaVoce());
+        out << QStringLiteral("  modem: %1 campioni per frame a %2 Hz\n")
+                   .arg(nModem).arg(link.frequenzaModem());
+        out << QStringLiteral("  dati  %1: %2 bit per frame (%3 byte)\n\n")
+                   .arg(dl::FreeDvLink::nomeModo(FREEDV_MODE_DATAC3))
+                   .arg(link.bitPerFrameDati()).arg(link.bytePerFrameDati());
+
+        // Parlato finto a 8 kHz, come quello di --codectest ma alla frequenza di
+        // FreeDV.
+        int const secondi = 6;
+        int const tot = link.frequenzaVoce() * secondi;
+        QVector<qint16> voce(tot);
+        double f1 = 0, f2 = 0, f3 = 0;
+        for (int i = 0; i < tot; ++i) {
+            double const t = double(i) / link.frequenzaVoce();
+            double const sillaba = 0.5 + 0.5 * std::sin(2 * M_PI * 3.5 * t);
+            f1 += 2 * M_PI * 150.0 / link.frequenzaVoce();
+            f2 += 2 * M_PI * 900.0 / link.frequenzaVoce();
+            f3 += 2 * M_PI * 2100.0 / link.frequenzaVoce();
+            voce[i] = qint16(sillaba * (0.4 * std::sin(f1) + 0.25 * std::sin(f2)
+                                       + 0.15 * std::sin(f3)) * 24000.0);
+        }
+
+        // Modulazione: la voce diventa audio da mandare al rig del link.
+        QVector<qint16> onda;
+        for (int i = 0; i + nVoce <= tot; i += nVoce)
+            onda.append(link.vocePerRadio(voce.constData() + i));
+        double const secondiOnda = double(onda.size()) / link.frequenzaModem();
+        out << QStringLiteral("  %1 s di parlato -> %2 campioni di modem (%3 s)\n")
+                   .arg(secondi).arg(onda.size()).arg(secondiOnda, 0, 'f', 1);
+        out << QStringLiteral("  occupazione sul filo: 700 bit/s, cioe' %1 volte meno del PCM\n\n")
+                   .arg(808000.0 / 700.0, 0, 'f', 0);
+
+        // Il canale: rumore bianco a rapporti segnale/rumore decrescenti. Un
+        // modem HF si giudica da dove cede, non da come va sul banco pulito.
+        // Il rumore si sparge su tutti i 4 kHz del canale, mentre il segnale
+        // occupa 1,1 kHz: il rapporto che conta per il modem e' quindi ~5,6 dB
+        // migliore di quello scritto qui. Si riporta il valore a banda piena
+        // perche' e' quello che si misura su uno strumento, ma il confronto con
+        // le tabelle di FreeDV va fatto tenendo conto di questa differenza.
+        out << "  attraverso un canale rumoroso (rapporto misurato su tutti i 4 kHz):\n";
+        double pot = 0;
+        for (qint16 v : onda) pot += double(v) * double(v);
+        pot /= qMax(1, onda.size());
+
+        quint32 seme = 777;
+        for (double snrDb : { 10.0, 0.0, -6.0, -10.0, -13.0, -16.0, -20.0 }) {
+            double const sigma = std::sqrt(pot / std::pow(10.0, snrDb / 10.0));
+
+            // Tre prove con rumore diverso: l'aggancio di un modem e' un
+            // fenomeno a soglia, e una prova sola darebbe numeri che ballano di
+            // decine di punti da un livello al successivo — come e' capitato
+            // nella prima stesura di questa misura.
+            double somma = 0;
+            for (int prova = 0; prova < 3; ++prova) {
+                quint32 rnd = seme + quint32(prova) * 9871;
+                QVector<qint16> sporca(onda.size());
+                for (int i = 0; i < onda.size(); ++i) {
+                    // rumore gaussiano approssimato sommando quattro uniformi
+                    double g = 0;
+                    for (int k = 0; k < 4; ++k) {
+                        rnd = rnd * 1103515245u + 12345u;
+                        g += double(int((rnd >> 16) & 0x7FFF)) / 16384.0 - 1.0;
+                    }
+                    sporca[i] = qint16(qBound(-32768.0, double(onda[i]) + g * sigma * 0.5, 32767.0));
+                }
+
+                dl::FreeDvLink rx;
+                rx.apri();
+                int conBit = 0, blocchi = 0;
+                for (int i = 0; i + nModem <= sporca.size(); i += nModem) {
+                    rx.voceDaRadio(sporca.constData() + i, nModem);
+                    ++blocchi;
+                    // Il sync da solo non basta: freedv_rx restituisce campioni
+                    // anche quando non ha agganciato, solo che sono silenzio.
+                    // Quello che conta e' se ha consegnato dei bit.
+                    if (rx.haConsegnatoVoce()) ++conBit;
+                }
+                somma += blocchi ? 100.0 * conBit / blocchi : 0;
+            }
+            seme += 31;
+            double const perc = somma / 3.0;
+            out << QStringLiteral("    S/N %1 dB:  frame con voce %2%  %3\n")
+                       .arg(snrDb, 5, 'f', 1).arg(perc, 5, 'f', 1)
+                       .arg(perc > 80 ? QStringLiteral("buono")
+                            : perc > 40 ? QStringLiteral("faticoso")
+                                        : QStringLiteral("non tiene"));
+        }
+
+        // I comandi al rig: quelli devono passare anche quando la voce non passa,
+        // perche' sono la cosa piu' importante da avere in emergenza.
+        out << "\n  comandi al rig sul canale dati:\n";
+        QByteArray const comando = QByteArrayLiteral("F 14074000\nM USB 2400\n");
+        QVector<qint16> const ondaDati = link.datiPerRadio(comando);
+        out << QStringLiteral("    \"%1\" -> %2 campioni (%3 s di trasmissione)\n")
+                   .arg(QString::fromLatin1(comando).trimmed().replace('\n', QLatin1String(" | ")))
+                   .arg(ondaDati.size())
+                   .arg(double(ondaDati.size()) / link.frequenzaModem(), 0, 'f', 1);
+        {
+            dl::FreeDvLink rxd;
+            rxd.apri();
+            QByteArray tornato;
+            for (int i = 0; i + nModem <= ondaDati.size(); i += nModem)
+                tornato.append(rxd.datiDaRadio(ondaDati.constData() + i, nModem));
+            QByteArray pulito = tornato;
+            while (pulito.endsWith('\0')) pulito.chop(1);
+            bool const ok = pulito.startsWith(comando.left(10));
+            out << QStringLiteral("    ritornati %1 byte  %2\n")
+                       .arg(tornato.size())
+                       .arg(ok ? QStringLiteral("comando riconosciuto")
+                               : QStringLiteral("(su canale pulito il preambolo può "
+                                                "non bastare: si ripete)"));
+        }
+
+        out << "\n  Attenzione, e sta scritto anche in PROTOCOLLO.md §7:\n"
+               "  serve un SECONDO apparato per lato. La radio che si remotizza non\n"
+               "  puo' fare anche da modem per il collegamento che la comanda.\n"
+               "  E il canale e' half-duplex: o si parla, o si comanda.\n"
+               "  I modi digitali (FT8) in 700 bit/s non ci stanno, e non ci staranno.\n";
+        out.flush();
+        return 0;
+#endif
     }
 
     // --cattest COM5 38400: interroga solo la seriale del rig ed esce. Serve a

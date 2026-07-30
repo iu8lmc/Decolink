@@ -31,6 +31,28 @@ if(NOT OPUS_FOUND)
 endif()
 message(STATUS "libopus: ${OPUS_LIBRARIES}")
 
+# codec2: porta sia la voce a 700 bit/s sia il modem OFDM di FreeDV, che sono le
+# due meta' del collegamento d'emergenza. Se manca, il resto funziona comunque:
+# il profilo EMRG semplicemente non compare fra le scelte.
+if(PkgConfig_FOUND)
+    pkg_check_modules(CODEC2 QUIET codec2)
+endif()
+if(NOT CODEC2_FOUND)
+    find_path(CODEC2_INCLUDE_DIR codec2/freedv_api.h)
+    find_library(CODEC2_LIBRARY NAMES codec2)
+    if(CODEC2_INCLUDE_DIR AND CODEC2_LIBRARY)
+        set(CODEC2_INCLUDE_DIRS ${CODEC2_INCLUDE_DIR})
+        set(CODEC2_LIBRARIES ${CODEC2_LIBRARY})
+        set(CODEC2_FOUND TRUE)
+    endif()
+endif()
+if(CODEC2_FOUND)
+    message(STATUS "libcodec2: ${CODEC2_LIBRARIES} (collegamento d'emergenza disponibile)")
+else()
+    message(WARNING "libcodec2 non trovata: niente collegamento d'emergenza. Su MSYS2:\n"
+                    "    pacman -S mingw-w64-x86_64-codec2")
+endif()
+
 # icona dell'eseguibile (Esplora risorse / barra applicazioni)
 if(WIN32)
     enable_language(RC)
@@ -42,3 +64,9 @@ target_include_directories(decolink PRIVATE ${OPUS_INCLUDE_DIRS})
 target_link_directories(decolink PRIVATE ${OPUS_LIBRARY_DIRS})
 target_link_libraries(decolink PRIVATE Qt6::Widgets Qt6::Multimedia Qt6::Network Qt6::SerialPort
                                        ${OPUS_LIBRARIES})
+if(CODEC2_FOUND)
+    target_compile_definitions(decolink PRIVATE DECOLINK_CON_FREEDV)
+    target_include_directories(decolink PRIVATE ${CODEC2_INCLUDE_DIRS})
+    target_link_directories(decolink PRIVATE ${CODEC2_LIBRARY_DIRS})
+    target_link_libraries(decolink PRIVATE ${CODEC2_LIBRARIES})
+endif()

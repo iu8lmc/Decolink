@@ -37,7 +37,7 @@ Da qui il principio della v3:
 | `CW` | Opus 12 kbit/s, banda 4 kHz | 27,2 | **20,2** | 17,7 | **fatto** |
 | `DIGI` | PCM 12 kHz senza perdite | **145,7 kbit/s** (blocchi da 40 ms) | | | **fatto** |
 | `CW-KEY` | solo gli istanti del tasto | **2,4 kbit/s** — 339× meno del PCM | | | **fatto** |
-| `EMRG` | Codec2 700C su FreeDV | 0,7 kbit/s | | | da fare |
+| `EMRG` | Codec2 su FreeDV 700E | **0,7 kbit/s** — 1154× meno del PCM | | | libreria fatta e provata al banco |
 
 Tutti i numeri sono **misurati** con `decolink.exe --codectest` su 30 secondi di
 parlato simulato, e comprendono header v3 e intestazioni IP/UDP. Contro gli 808
@@ -276,10 +276,32 @@ libcodec2, senza programmi di terze parti.
 
 Cosa passa, in ordine di priorità:
 
-1. **Comandi CAT e stato** — frequenza, modo, PTT, ROS, alimentazione: decine di
-   byte, che arrivano anche con propagazione mediocre.
-2. **Voce digitale** a 700–1600 bit/s: intelligibile, non bella.
+1. **Comandi CAT e stato** — frequenza, modo, PTT, ROS, alimentazione. Sul canale
+   dati DATAC3: 126 byte utili per burst, 3,9 secondi di trasmissione per burst,
+   cioè ~320 bit/s. Un comando come `F 14074000` ci sta tutto e avanza spazio.
+2. **Voce digitale** con FreeDV 700E a 700 bit/s: intelligibile, non bella.
 3. **Messaggi brevi** di servizio fra operatore e stazione.
+
+### Misure al banco
+
+Con `decolink.exe --emrgtest`, su 6 secondi di parlato attraverso un canale con
+rumore bianco (rapporto misurato su tutti i 4 kHz del canale; il segnale ne occupa
+1,1, quindi il rapporto che vede il modem è ~5,6 dB migliore):
+
+| rapporto S/N | frame con voce | |
+|---|---|---|
+| +10 dB | 97% | buono |
+| 0 dB | 97% | buono |
+| −6 dB | 97% | buono |
+| −10 dB | 1% | non tiene |
+| −20 dB | 0% | non tiene |
+
+Il collegamento cede fra −6 e −10 dB, e la transizione è netta: un modem con
+correzione d'errore funziona o non funziona, non si degrada gentilmente. Ogni
+livello è la media di tre prove con rumore diverso, perché l'aggancio è un
+fenomeno a soglia e una prova sola dà numeri che ballano di decine di punti.
+
+I comandi passano: 126 byte trasmessi e riconosciuti dall'altra parte.
 
 Cosa **non** passa, e va detto subito: l'audio dei modi digitali. FT8 dentro un
 canale da 700 bit/s non ci sta, e nessuna compressione lo farà entrare. In
@@ -338,8 +360,12 @@ si perde rispetto all'ascolto locale, il profilo non va bene.
    Resta da dimostrare sul campo la promessa che conta: **zero decodifiche perse**
    rispetto all'ascolto locale (vedi §9).
 7. ~~**`CW-KEY`**~~ — **fatto**: 2,4 kbit/s, ritmo conservato entro 5 ms.
-8. **`EMRG` su FreeDV** — per ultimo, perché richiede due radio per essere
-   provato seriamente, non un banco di prova.
+8. **`EMRG` su FreeDV** — libreria scritta e provata al banco (voce, comandi,
+   punto di rottura). **Manca l'integrazione nell'interfaccia**, e manca di
+   proposito: richiede la scelta dei dispositivi audio della radio del link e il
+   comando del suo PTT, e sviluppare quella parte senza avere due radio davanti
+   significherebbe scrivere codice che nessuno ha visto funzionare. Il profilo non
+   compare fra le scelte finché non è stato provato in aria.
 
 Ogni passo è utile da solo: fermandosi qui, la fonia consuma venticinque volte
 meno di prima e il CW quaranta.
