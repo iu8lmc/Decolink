@@ -30,6 +30,8 @@ Solo libreria standard Python 3.
 from __future__ import annotations   # annotazioni come testo: gira anche su Python 3.8
 
 import argparse
+import hashlib
+import hmac
 import html
 import json
 import os
@@ -213,6 +215,36 @@ def ultima_release() -> dict | None:
         return None
 
 
+# Durata di un collegamento per rimettere la password: un'ora. Il gettone non si
+# conserva da nessuna parte, perche' contiene al proprio interno l'impronta della
+# password attuale: appena la password cambia, il collegamento smette di valere.
+# Cosi' non serve una tabella da svuotare, e un collegamento gia' usato non si
+# puo' riusare.
+RESET_TTL = 3600
+
+
+def gettone_reset(utente, scade: int) -> str:
+    corpo = f"{utente['id']}:{utente['email']}:{utente['pwd']}:{scade}"
+    firma = hmac.new(SECRET, corpo.encode("utf-8"), hashlib.sha256).hexdigest()[:32]
+    return f"{utente['id']}-{scade}-{firma}"
+
+
+def utente_da_gettone(conn, gettone: str):
+    """L'utente a cui appartiene il collegamento, o None se non vale (piu')."""
+    try:
+        uid, scade, firma = gettone.split("-", 2)
+        uid, scade = int(uid), int(scade)
+    except Exception:
+        return None
+    if scade < time.time():
+        return None
+    u = db.user_by_id(conn, uid)
+    if not u:
+        return None
+    atteso = gettone_reset(u, scade).split("-", 2)[2]
+    return u if secrets.compare_digest(atteso, firma) else None
+
+
 def e(s) -> str:
     """Testo pronto per finire dentro l'HTML. Ogni valore che arriva da un
     utente passa di qui: e' l'unica difesa contro chi si registra con un
@@ -240,6 +272,7 @@ def page(titolo: str, corpo: str, utente=None, msg: str = "", errore: str = "") 
                f'<a href="/">stazioni</a>' + nav)
         if utente["is_admin"]:
             nav += '<a href="/admin">amministrazione</a>'
+        nav += '<a href="/password">password</a>'
         nav += ('<form method="post" action="/esci" class="inline">'
                 f'<input type="hidden" name="csrf" value="{e(csrf)}">'
                 '<button class="ghost small">esci</button></form>')
@@ -369,6 +402,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, self.form_registrazione(conn))
             if percorso in ("/scarica", "/download"):
                 return self.pagina_scarica(conn, utente)
+            if percorso == "/password":
+                return self.pagina_password(conn, utente)
+            if percorso == "/recupera":
+                return self.pagina_recupera(conn)
+            if percorso == "/reimposta":
+                q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+                return self.pagina_reimposta(conn, (q.get("t") or [""])[0])
             if percorso == "/admin":
                 return self.pagina_admin(conn, utente)
             if percorso.startswith("/stazione/"):
@@ -390,6 +430,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self.post_accesso(conn, dati)
             if percorso == "/registrati":
                 return self.post_registrazione(conn, dati)
+            # Recupero e reimpostazione stanno fuori dal controllo anti-CSRF
+            # perche' chi li usa non e' collegato e un gettone non ce l'ha: al
+            # loro posto valgono il freno sui tentativi e il collegamento firmato.
+            if percorso == "/recupera":
+                return self.post_recupera(conn, dati)
+            if percorso == "/reimposta":
+                return self.post_reimposta(conn, dati)
 
             utente = self._utente(conn)
             self._arma_csrf(conn, utente)
@@ -413,6 +460,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self.post_chiave(conn, utente, dati)
             if percorso == "/utente-cancella":
                 return self.post_utente_cancella(conn, utente, dati)
+            if percorso == "/password":
+                return self.post_password(conn, utente, dati)
+            if percorso == "/reimposta-admin":
+                return self.post_reimposta_admin(conn, utente, dati)
             self._send(404, page("non trovata", "<h1>Pagina inesistente</h1>", utente))
         finally:
             conn.close()
@@ -429,7 +480,8 @@ class Handler(BaseHTTPRequestHandler):
 <button style="width:100%">Entra</button>
 </form>
 <p style="margin-top:18px;color:#8fb3d9">Non hai un accesso?
-<a href="/registrati">Richiedilo</a>.</p>
+<a href="/registrati">Richiedilo</a>. &nbsp;·&nbsp;
+<a href="/recupera">Password dimenticata?</a></p>
 <p style="margin-top:6px;color:#8fb3d9">Ti serve il programma?
 <a href="/scarica">Scarica Decolink</a>.</p></div>"""
         return page("accesso", corpo, None, msg, errore)
@@ -675,6 +727,12 @@ L'<b>ascoltatore</b> riceve e basta.</p></div>
 <button class="small ghost" name="stato" value="{stato}">{etichetta}</button></form> """
             # La cancellazione non si offre per se stessi: un amministratore che
             # si cancella lascia il pannello senza nessuno che possa entrarci.
+            azioni += f"""
+<form method="post" action="/reimposta-admin" class="inline"
+      onsubmit="return confirm('Rimettere la password di {e(u['callsign'])}?')">
+<input type="hidden" name="csrf" value="{e(csrf)}">
+<input type="hidden" name="user" value="{u['id']}">
+<button class="small ghost">password</button></form> """
             if u["id"] != utente["id"]:
                 azioni += f"""
 <form method="post" action="/utente-cancella" class="inline"
@@ -1020,6 +1078,164 @@ controllo del rig viaggiano su internet, da casa al telefono, dovunque sia.</p>
 <p class="sub" style="font-size:13px">Codice sorgente e cronologia delle versioni:
 <a href="https://github.com/{e(GITHUB_REPO)}">github.com/{e(GITHUB_REPO)}</a></p>"""
         return self._send(200, page("scarica", corpo, utente))
+
+    # ------------------------------------------------------- password
+
+    def pagina_password(self, conn, utente, errore="", msg=""):
+        if not utente:
+            return self._redirect("/accedi")
+        csrf = self._csrf(conn, utente)
+        corpo = f"""
+<div class="card" style="max-width:460px">
+<h1>Cambia la password</h1>
+<p class="sub">Vale per il pannello e per il client Decolink: sono lo stesso accesso.</p>
+<form method="post" action="/password">
+<input type="hidden" name="csrf" value="{e(csrf)}">
+<label>Password attuale</label><input name="vecchia" type="password" required autofocus>
+<label>Nuova password</label><input name="nuova" type="password" required minlength="8"
+  placeholder="almeno 8 caratteri">
+<label>Ripeti la nuova</label><input name="ripeti" type="password" required minlength="8">
+<button style="width:100%">Cambia</button>
+</form>
+<p class="sub" style="margin-top:16px;font-size:13px">Cambiando la password, le
+<b>chiavi di stazione</b> già emesse continuano a valere: per annullare quelle,
+togliti e rimettiti il permesso sulla stazione.</p>
+</div>"""
+        return self._send(200, page("cambia password", corpo, utente, msg, errore))
+
+    def post_password(self, conn, utente, dati):
+        vecchia = str(dati.get("vecchia", ""))
+        nuova = str(dati.get("nuova", ""))
+        ripeti = str(dati.get("ripeti", ""))
+        if not db.check_password(vecchia, utente["pwd"]):
+            return self.pagina_password(conn, utente, "La password attuale non è corretta.")
+        if len(nuova) < 8:
+            return self.pagina_password(conn, utente, "La nuova password deve avere almeno 8 caratteri.")
+        if nuova != ripeti:
+            return self.pagina_password(conn, utente, "Le due password non coincidono.")
+        db.set_password(conn, utente["id"], nuova)
+        print(f"  {utente['callsign']} ha cambiato la propria password")
+        # Si resta collegati: il cookie di sessione e' indipendente dalla
+        # password, e buttare fuori qualcuno che ha appena fatto la cosa giusta
+        # sarebbe solo scortese.
+        return self.pagina_password(conn, db.user_by_id(conn, utente["id"]),
+                                    msg="Password cambiata.")
+
+    def pagina_recupera(self, conn, errore="", msg=""):
+        corpo = f"""
+<div class="card" style="max-width:440px;margin:40px auto">
+<h1>Password dimenticata</h1>
+<p class="sub">Scrivi la tua email: se l'indirizzo è registrato ti arriva un
+collegamento per rimetterla, valido un'ora.</p>
+<form method="post" action="/recupera">
+<label>Email</label><input name="email" type="email" required autofocus>
+<button style="width:100%">Mandami il collegamento</button>
+</form>
+<p class="sub" style="margin-top:16px;font-size:13px">
+Se la posta non è configurata su questo server, il collegamento non può partire:
+in quel caso chiedi a un amministratore della stazione di rimettertela dal
+pannello.</p>
+<p style="margin-top:14px"><a href="/accedi">← torna all'accesso</a></p></div>"""
+        return self._send(200, page("password dimenticata", corpo, None, msg, errore))
+
+    def post_recupera(self, conn, dati):
+        if self._freno():
+            return self._send(429, page("troppi tentativi",
+                                        "<h1>Troppe richieste</h1>"
+                                        "<p class='sub'>Riprova fra qualche minuto.</p>"))
+        self._segna_tentativo()
+        email = str(dati.get("email", "")).strip()
+        u = db.user_by_email(conn, email)
+
+        # La risposta e' la stessa che l'indirizzo esista o no: dire "questa
+        # email non risulta" permetterebbe a chiunque di scoprire chi ha un
+        # accesso a questo gateway.
+        risposta = ("Se l'indirizzo è registrato, il collegamento per rimettere "
+                    "la password è appena partito. Controlla la posta.")
+
+        if u:
+            scade = int(time.time()) + RESET_TTL
+            base = mail.BASE_URL or f"https://{self.headers.get('Host', '')}"
+            link = f"{base}/reimposta?t={urllib.parse.quote(gettone_reset(u, scade))}"
+            if mail.attiva():
+                mail.invia(u["email"], "Decolink: rimetti la tua password",
+                           f"Per rimettere la password di {u['callsign']} apri questo "
+                           f"collegamento entro un'ora:\n\n{link}\n\n"
+                           f"Se non hai chiesto tu di cambiarla, ignora questo messaggio: "
+                           f"la password attuale resta valida.")
+                print(f"  collegamento di recupero spedito a {u['callsign']}")
+            else:
+                # Senza posta configurata il collegamento non puo' partire. Si
+                # scrive nel registro del servizio, cosi' chi amministra la
+                # macchina puo' prenderlo e consegnarlo a mano: e' l'unico modo
+                # onesto di non lasciare la gente chiusa fuori.
+                print(f"  [posta non configurata] collegamento di recupero per "
+                      f"{u['callsign']} <{u['email']}>:\n      {link}")
+        return self._send(200, self.form_accesso(msg=risposta))
+
+    def pagina_reimposta(self, conn, gettone, errore=""):
+        u = utente_da_gettone(conn, gettone)
+        if not u:
+            corpo = """<div class="card" style="max-width:440px;margin:40px auto">
+<h1>Collegamento non più valido</h1>
+<p class="sub">È scaduto, è già stato usato, oppure la password è stata cambiata
+nel frattempo. Chiedine un altro.</p>
+<p><a href="/recupera">← richiedi un nuovo collegamento</a></p></div>"""
+            return self._send(400, page("non valido", corpo))
+        corpo = f"""
+<div class="card" style="max-width:440px;margin:40px auto">
+<h1>Nuova password</h1>
+<p class="sub">Per <b>{e(u['callsign'])}</b> &lt;{e(u['email'])}&gt;</p>
+<form method="post" action="/reimposta">
+<input type="hidden" name="t" value="{e(gettone)}">
+<label>Nuova password</label><input name="nuova" type="password" required minlength="8"
+  autofocus placeholder="almeno 8 caratteri">
+<label>Ripeti</label><input name="ripeti" type="password" required minlength="8">
+<button style="width:100%">Imposta</button>
+</form></div>"""
+        return self._send(200, page("nuova password", corpo, None, "", errore))
+
+    def post_reimposta(self, conn, dati):
+        gettone = str(dati.get("t", ""))
+        u = utente_da_gettone(conn, gettone)
+        if not u:
+            return self.pagina_reimposta(conn, gettone)
+        nuova, ripeti = str(dati.get("nuova", "")), str(dati.get("ripeti", ""))
+        if len(nuova) < 8:
+            return self.pagina_reimposta(conn, gettone, "Almeno 8 caratteri.")
+        if nuova != ripeti:
+            return self.pagina_reimposta(conn, gettone, "Le due password non coincidono.")
+        db.set_password(conn, u["id"], nuova)
+        print(f"  {u['callsign']} ha rimesso la password con un collegamento di recupero")
+        return self._send(200, self.form_accesso(
+            msg="Password impostata. Ora puoi entrare."))
+
+    def post_reimposta_admin(self, conn, utente, dati):
+        """Un amministratore rimette la password di qualcun altro.
+
+        Serve quando la posta non e' configurata, che e' la condizione normale di
+        un gateway appena messo in piedi: senza questo, chi dimentica la password
+        resta fuori e l'unico rimedio sarebbe entrare nel server.
+        """
+        if not utente["is_admin"]:
+            return self._send(403, page("vietato", "<h1>Riservato agli amministratori</h1>", utente))
+        try:
+            uid = int(dati.get("user", 0))
+        except ValueError:
+            return self._redirect("/admin")
+        u = db.user_by_id(conn, uid)
+        if not u:
+            return self._redirect("/admin")
+        nuova = secrets.token_urlsafe(9)
+        db.set_password(conn, uid, nuova)
+        print(f"  {utente['callsign']} rimette la password di {u['callsign']}")
+        corpo = f"""<h1>Password rimessa per {e(u['callsign'])}</h1>
+<div class="card"><p>Consegnala a mano e falla cambiare al primo accesso:</p>
+<div class="mono">{e(nuova)}</div></div>
+<div class="msg err">Vale finché non la cambia. Se il messaggio con cui gliela
+mandi resta in giro, resta in giro anche l'accesso.</div>
+<p><a href="/admin">← torna all'amministrazione</a></p>"""
+        return self._send(200, page("password rimessa", corpo, utente))
 
     def api_stazioni(self, conn):
         """Elenco pubblico delle stazioni: serve solo a popolare la tendina
