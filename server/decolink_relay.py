@@ -198,12 +198,28 @@ class Relay:
         return None
 
     def registra(self, addr, payload: str, seq, now: float) -> None:
-        # payload: "gw <token>" oppure "op <token>"
-        tipo, _, token_txt = payload.partition(" ")
+        # payload: "gw <token>", "op <token>", oppure il token da solo.
+        #
+        # La terza forma serve ai client che hanno un solo campo di testo dove
+        # scrivere — quelli scritti quando la stanza era una parola concordata a
+        # voce. Vi si incolla una chiave di stazione e si entra come operatore.
+        # Non e' una scorciatoia sulla sicurezza: la chiave e' un token firmato
+        # come tutti gli altri, con lo stesso ruolo, gli stessi log e la stessa
+        # revoca. Cambia solo che dura piu' a lungo, perche' chi la incolla a mano
+        # non puo' rifarlo ogni ora.
+        payload = payload.strip()
+        tipo, _, resto = payload.partition(" ")
         tipo = tipo.strip().lower()
-        token_txt = token_txt.strip()
-        if tipo not in ("gw", "op") or not token_txt:
-            self.rifiuta(addr, "formato della registrazione non valido")
+        if tipo in ("gw", "op"):
+            token_txt = resto.strip()
+        elif payload.startswith(tok.PREFIX + "."):
+            tipo, token_txt = "op", payload
+        else:
+            self.rifiuta(addr, "serve una chiave di accesso: aggiorna il programma, "
+                               "oppure incolla la chiave di stazione al posto della stanza")
+            return
+        if not token_txt:
+            self.rifiuta(addr, "chiave di accesso mancante")
             return
 
         try:

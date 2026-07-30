@@ -55,6 +55,13 @@ COOKIE = "dl_session"
 # se nel frattempo qualcuno perde i permessi il danno e' limitato a questo.
 API_TOKEN_TTL = 3600
 
+# La chiave di stazione dura trenta giorni: serve ai programmi che non sanno fare
+# il login e hanno un solo campo di testo dove incollarla, quindi nessuno puo'
+# rinnovarla ogni ora. Resta un token firmato come gli altri — stesso ruolo,
+# stessi log, e smette di funzionare entro pochi secondi se si toglie il permesso
+# a chi l'ha chiesta.
+CHIAVE_TTL = 30 * 24 * 3600
+
 # Freno ai tentativi di login: non e' un antifurto, ma trasforma un attacco a
 # dizionario in qualcosa che richiede mesi invece di minuti.
 LOGIN_MAX_TRIES = 8
@@ -379,6 +386,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.post_stazione_nuova(conn, utente, dati)
             if percorso == "/stazione-stato":
                 return self.post_stazione_stato(conn, utente, dati)
+            if percorso == "/chiave":
+                return self.post_chiave(conn, utente, dati)
             self._send(404, page("non trovata", "<h1>Pagina inesistente</h1>", utente))
         finally:
             conn.close()
@@ -500,14 +509,19 @@ ma non è ancora stata approvata. Fino ad allora non è possibile collegarsi ad
 alcuna stazione.</p></div>"""
             return self._send(200, page("in attesa", corpo, utente))
 
+        csrf = self._csrf(conn, utente)
         righe = ""
         for s in db.stations_of(conn, utente["id"]):
-            gestisci = (f'<a href="/stazione/{e(s["slug"])}">gestisci</a>'
+            gestisci = (f'<a href="/stazione/{e(s["slug"])}">gestisci</a> '
                         if s["role"] == tok.ROLE_OWNER or utente["is_admin"] else "")
+            chiave = (f'<form method="post" action="/chiave" class="inline">'
+                      f'<input type="hidden" name="csrf" value="{e(csrf)}">'
+                      f'<input type="hidden" name="station" value="{e(s["slug"])}">'
+                      f'<button class="ghost small">chiave</button></form>')
             righe += (f'<tr><td><b>{e(s["slug"])}</b></td><td>{e(s["name"])}</td>'
                       f'<td>{e(s["callsign"])}</td>'
                       f'<td><span class="tag {e(s["role"])}">{e(RUOLI_IT[s["role"]])}</span></td>'
-                      f'<td>{gestisci}</td></tr>')
+                      f'<td>{gestisci}{chiave}</td></tr>')
         if not righe:
             righe = ('<tr><td colspan="5" style="color:#7d8b99">Nessuna stazione abilitata. '
                      'Chiedi al titolare di aggiungerti.</td></tr>')
@@ -520,7 +534,11 @@ collegamento viene richiesto da solo a ogni avvio.</p>
 {righe}</table></div>
 <h2>Impostazioni per il client</h2>
 <div class="card"><p class="sub">Server di accesso da indicare in Decolink:</p>
-<div class="mono">{e(self.headers.get('Host', ''))}</div></div>"""
+<div class="mono">{e(self.headers.get('Host', ''))}</div>
+<p class="sub" style="margin-top:14px;font-size:13px">Il pulsante <b>chiave</b> serve
+per i programmi che non sanno fare l'accesso — come le versioni di Decodium Mobile
+precedenti al controllo accessi: la chiave si incolla al posto del nome della
+stanza. Decolink aggiornato non ne ha bisogno, fa il login da sé.</p></div>"""
         return self._send(200, page("stazioni", corpo, utente))
 
     def pagina_stazione(self, conn, utente, slug):
@@ -760,6 +778,55 @@ L'<b>ascoltatore</b> riceve e basta.</p></div>
             return self._send(403, page("vietato", "<h1>Non puoi gestire questa stazione</h1>", utente))
         db.set_station_enabled(conn, st["id"], str(dati.get("enabled", "1")) == "1")
         return self._redirect(f"/stazione/{st['slug']}")
+
+    def post_chiave(self, conn, utente, dati):
+        """Emette una chiave di stazione per i programmi che non sanno accedere.
+
+        Serve a chi ha un'app con un solo campo di testo al posto del login: la
+        chiave si incolla dove andava il nome della stanza. Vale trenta giorni
+        perche' nessuno puo' reincollarla ogni ora, ed e' l'unico modo per far
+        entrare un programma vecchio senza riaprire le stanze a chiunque.
+        """
+        if utente["status"] != db.ST_ACTIVE:
+            return self._send(403, page("vietato", "<h1>Accesso non attivo</h1>", utente))
+        slug = str(dati.get("station", "")).strip().lower()
+        st = db.station_by_slug(conn, slug)
+        if not st:
+            return self._redirect("/")
+        ruolo = db.role_of(conn, utente["id"], st["id"])
+        if not ruolo:
+            return self._send(403, page("vietato",
+                                        "<h1>Non hai accesso a questa stazione</h1>", utente))
+
+        chiave = tok.issue(SECRET, user_id=utente["id"], callsign=utente["callsign"],
+                           station_id=st["id"], role=ruolo, ttl=CHIAVE_TTL)
+        scade = time.strftime("%d/%m/%Y", time.localtime(time.time() + CHIAVE_TTL))
+        print(f"  chiave di stazione per {utente['callsign']} su '{st['slug']}' "
+              f"({ruolo}), scade il {scade}")
+
+        corpo = f"""<h1>Chiave per {e(st['slug'])}</h1>
+<p class="sub">Da usare nei programmi che non sanno fare l'accesso, come le versioni
+di Decodium Mobile precedenti al controllo accessi.</p>
+
+<div class="card">
+<p><b>Incolla questa chiave al posto del nome della stanza</b>, nel campo
+<i>Stanza</i> dell'applicazione. Lascia l'host come è
+(<span class="mono" style="display:inline;padding:2px 6px">{e(self.headers.get('Host', ''))}</span>).</p>
+<div class="mono">{e(chiave)}</div>
+<p class="sub" style="margin-top:14px">Vale come <b>{e(RUOLI_IT.get(ruolo, ruolo))}</b>
+fino al <b>{e(scade)}</b>. Ogni collegamento e ogni trasmissione restano registrati
+a nome tuo.</p>
+</div>
+
+<div class="msg err">
+<b>Trattala come una password.</b> Chi ce l'ha può operare la stazione come te,
+fino alla scadenza, da qualunque dispositivo. Se la perdi o non ti serve più:
+togliti e rimettiti il permesso su questa stazione dal pannello — le chiavi
+emesse prima smettono di funzionare entro pochi secondi.
+</div>
+
+<p><a href="/">← torna alle stazioni</a></p>"""
+        return self._send(200, page("chiave di stazione", corpo, utente))
 
     # -------------------------------------------------------------- API
 
