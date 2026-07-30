@@ -325,12 +325,18 @@ public:
         // profili che funzionano davvero — i digitali senza perdite e
         // l'emergenza sono progettati (PROTOCOLLO.md) ma non ancora fatti, e
         // metterli qui sarebbe promettere il vuoto.
+        // Il primo della lista e' anche il predefinito, e deve essere quello che
+        // funziona con TUTTI: il PCM. I profili nuovi fanno risparmiare banda
+        // solo se dall'altra parte c'e' qualcuno che li sa leggere, e mandarli a
+        // un telefono che aspetta PCM significa mandare audio che non arriva.
+        // Il passaggio a un profilo migliore lo chiede il telefono (CTRL/HELLO o
+        // CTRL/SCEGLI); qui si puo' forzare a mano, sapendo cosa si sta facendo.
         m_profile = new QComboBox;
-        m_profile->addItem(QStringLiteral("Voce — Opus, 39 kbit/s (consigliato)"), dl::PVoce);
-        m_profile->addItem(QStringLiteral("CW — Opus banda stretta, 27 kbit/s"), dl::PCw);
+        m_profile->addItem(QStringLiteral("PCM 48 kHz — compatibile con tutti, 808 kbit/s"), dl::PPcm48);
+        m_profile->addItem(QStringLiteral("Voce — Opus, 32 kbit/s (serve un client aggiornato)"), dl::PVoce);
+        m_profile->addItem(QStringLiteral("CW — Opus banda stretta, 20 kbit/s"), dl::PCw);
         m_profile->addItem(QStringLiteral("Digitali — senza perdite, 146 kbit/s"), dl::PDigi);
-        m_profile->addItem(QStringLiteral("CW a tasto — solo il ritmo, ~2 kbit/s"), dl::PCwKey);
-        m_profile->addItem(QStringLiteral("PCM 48 kHz — 808 kbit/s, per client vecchi"), dl::PPcm48);
+        m_profile->addItem(QStringLiteral("CW a tasto — solo il ritmo, 2,4 kbit/s"), dl::PCwKey);
 
         // Quanti frame per pacchetto. Piu' se ne raggruppano, meno volte si paga
         // l'involucro IP/UDP, ma piu' latenza si aggiunge.
@@ -787,6 +793,7 @@ private slots:
                 continue;
             }
             if (flags == kFlagPeerUp) {
+                m_peerUpVisto = true;
                 setStatus(QStringLiteral("il telefono è entrato nella stanza"));
             } else if (flags == kFlagRegister) {
                 setStatus(QStringLiteral("registrato sul relay come %1 (%2)")
@@ -890,6 +897,7 @@ private slots:
             // (o non dichiara CapAggr) riceve un frame per pacchetto: si perde
             // il risparmio, non il collegamento.
             quint8 const cap = corpo.size() >= 2 ? quint8(corpo.at(1)) : 0;
+            m_peerHaParlato = true;      // dall'altra parte c'e' un client v3
             bool const prima = m_peerSaAggr;
             m_peerSaAggr = (cap & dl::CapAggr) != 0;
             if (m_peerSaAggr != prima) {
@@ -912,6 +920,7 @@ private slots:
         }
 
         if (sotto == dl::CScegli && corpo.size() >= 2) {
+            m_peerHaParlato = true;
             quint8 const voluto = quint8(corpo.at(1));
             int const idx = m_profile->findData(voluto);
             if (idx >= 0) {
@@ -1238,6 +1247,17 @@ private slots:
         if (m_perditaVista > 0)
             testo += QStringLiteral("   perdita segnalata %1%").arg(m_perditaVista);
         m_stats->setText(testo);
+
+        // I due modi in cui si manda audio senza che arrivi a nessuno, ed e'
+        // giusto dirlo invece di lasciar guardare la barra del livello.
+        if (m_mode->currentIndex() == ModeRelay && !m_peerUpVisto) {
+            setStatus(QStringLiteral("registrato, ma nella stazione non c'è nessun altro: "
+                                     "il telefono non è ancora entrato"));
+        } else if (prof != dl::PPcm48 && !m_peerHaParlato) {
+            setStatus(QStringLiteral("attenzione: profilo %1, ma il telefono non ha confermato "
+                                     "di saperlo leggere — se non senti niente, passa a PCM 48 kHz")
+                          .arg(QString::fromLatin1(dl::nomeProfilo(prof))));
+        }
     }
 
 private:
@@ -1392,8 +1412,26 @@ private:
         m_remember->setChecked(s.value(QStringLiteral("remember"), false).toBool());
         if (m_remember->isChecked())
             m_password->setText(s.value(QStringLiteral("password")).toString());
-        int const pi = m_profile->findData(s.value(QStringLiteral("profile"), dl::PVoce).toUInt());
+        int const pi = m_profile->findData(s.value(QStringLiteral("profile"), dl::PPcm48).toUInt());
         if (pi >= 0) m_profile->setCurrentIndex(pi);
+
+        // Le versioni uscite il 30 luglio 2026 partivano con un profilo compresso
+        // come predefinito, e chi se l'e' ritrovato salvato non riceveva piu'
+        // niente: il telefono aspetta PCM e quello che arrivava non lo sapeva
+        // leggere. Si riporta a PCM una volta sola, lasciando poi liberi di
+        // scegliere. Un'impostazione salvata che rompe il collegamento va
+        // corretta, non conservata per rispetto.
+        if (!s.value(QStringLiteral("profiloRivisto"), false).toBool()) {
+            if (quint8(m_profile->currentData().toUInt()) != dl::PPcm48) {
+                m_profile->setCurrentIndex(0);      // PCM 48 kHz
+                QTimer::singleShot(1200, this, [this] {
+                    setStatus(QStringLiteral("profilo riportato a PCM 48 kHz: i profili compressi "
+                                             "richiedono un telefono aggiornato"));
+                });
+            }
+            QSettings w(QStringLiteral("it.ft2"), QStringLiteral("Decolink"));
+            w.setValue(QStringLiteral("profiloRivisto"), true);
+        }
         int const ai = m_aggr->findData(s.value(QStringLiteral("aggr"), 2).toInt());
         if (ai >= 0) m_aggr->setCurrentIndex(ai);
         m_catBaud->setCurrentText(s.value(QStringLiteral("catBaud"), QStringLiteral("38400")).toString());
@@ -1503,6 +1541,12 @@ private:
     // raggruppati, e lo si scopre dal suo HELLO: meglio consumare piu' banda che
     // mandare a un client vecchio un formato che non capisce.
     bool m_peerSaAggr {false};
+    // Se dall'altra parte non si e' mai fatto vivo nessuno con la v3, mandare un
+    // profilo compresso e' mandare audio nel vuoto: l'interfaccia deve dirlo,
+    // altrimenti si vede la barra del livello muoversi e si pensa che vada tutto
+    // bene mentre il telefono non riceve niente.
+    bool m_peerHaParlato {false};
+    bool m_peerUpVisto {false};
 
     QHostAddress m_dstAddr, m_peerAddr;
     quint16 m_dstPort {5555}, m_peerPort {0};
