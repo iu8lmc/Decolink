@@ -39,6 +39,7 @@ import ssl
 import sys
 import time
 import urllib.parse
+import urllib.request      # serve a chiedere a GitHub qual e' l'ultima release
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import decolink_db as db
@@ -70,45 +71,138 @@ RUOLI_IT = {tok.ROLE_OWNER: "titolare", tok.ROLE_OPERATOR: "operatore",
 STATI_IT = {db.ST_PENDING: "in attesa", db.ST_ACTIVE: "attivo",
             db.ST_SUSPENDED: "sospeso"}
 
+# Tema in linea con gli altri siti FT2 (community.ft2.it): fondo blu notte,
+# ciano come accento e verde acqua per le conferme. Gli stessi colori dell'icona
+# di Decolink, cosi' il client e il sito si riconoscono come la stessa cosa.
 CSS = """
-:root { color-scheme: dark }
+:root {
+  color-scheme: dark;
+  --fondo:#08111f; --fondo2:#0b1018; --notte:#16213e; --notte2:#1d2c56;
+  --bordo:#243b63; --ciano:#00e5ff; --acqua:#36d8ad;
+  --testo:#e8edf5; --tenue:#8fb3d9; --giallo:#ffd43b; --rosso:#ff6b6b;
+}
 * { box-sizing: border-box }
-body { margin:0; background:#12151a; color:#dfe4ea; font:15px/1.5 system-ui,Segoe UI,sans-serif }
-a { color:#5fd08a; text-decoration:none } a:hover { text-decoration:underline }
-header { background:#0d1014; border-bottom:1px solid #232a33; padding:14px 22px;
-         display:flex; align-items:center; gap:16px; flex-wrap:wrap }
-header .logo { font-weight:700; letter-spacing:.5px; color:#5fd08a }
+body { margin:0; background:var(--fondo); color:var(--testo);
+       font:15px/1.55 system-ui,Segoe UI,Roboto,sans-serif }
+a { color:var(--ciano); text-decoration:none } a:hover { text-decoration:underline }
+
+header { background:linear-gradient(90deg,#0b1018 0%,#16213e 55%,#1d2c56 100%);
+         border-bottom:1px solid var(--bordo); padding:14px 22px;
+         display:flex; align-items:center; gap:18px; flex-wrap:wrap }
+header .logo { font-weight:800; letter-spacing:1.2px; font-size:17px;
+               background:linear-gradient(90deg,var(--ciano),var(--acqua));
+               -webkit-background-clip:text; background-clip:text; color:transparent }
 header .sp { flex:1 }
+header a { color:var(--tenue) } header a:hover { color:var(--ciano); text-decoration:none }
+
 main { max-width:960px; margin:0 auto; padding:22px }
-h1 { font-size:21px; margin:0 0 4px } h2 { font-size:17px; margin:26px 0 10px; color:#9fb0c0 }
-.sub { color:#7d8b99; margin:0 0 20px }
-.card { background:#171b21; border:1px solid #232a33; border-radius:10px; padding:18px; margin-bottom:18px }
-label { display:block; margin:12px 0 5px; color:#9fb0c0; font-size:13px }
-input,select { width:100%; padding:9px 11px; background:#0f1216; color:#dfe4ea;
-               border:1px solid #2c3542; border-radius:7px; font-size:15px }
-input:focus,select:focus { outline:none; border-color:#5fd08a }
-button { background:#5fd08a; color:#0d1014; border:0; border-radius:7px; padding:9px 16px;
-         font-size:15px; font-weight:600; cursor:pointer; margin-top:14px }
-button:hover { background:#74dc9c }
-button.ghost { background:transparent; color:#9fb0c0; border:1px solid #2c3542; font-weight:400 }
+h1 { font-size:22px; margin:0 0 4px; letter-spacing:.2px }
+h2 { font-size:17px; margin:28px 0 10px; color:var(--tenue); font-weight:600 }
+.sub { color:var(--tenue); margin:0 0 20px }
+.card { background:rgba(22,33,62,.45); border:1px solid var(--bordo); border-radius:12px;
+        padding:18px; margin-bottom:18px }
+
+label { display:block; margin:12px 0 5px; color:var(--tenue); font-size:13px }
+input,select { width:100%; padding:10px 12px; background:var(--fondo2); color:var(--testo);
+               border:1px solid var(--bordo); border-radius:8px; font-size:15px }
+input:focus,select:focus { outline:none; border-color:var(--ciano);
+                           box-shadow:0 0 0 3px rgba(0,229,255,.13) }
+button { background:linear-gradient(90deg,var(--ciano),var(--acqua)); color:#06131c; border:0;
+         border-radius:8px; padding:10px 18px; font-size:15px; font-weight:700;
+         cursor:pointer; margin-top:14px; letter-spacing:.2px }
+button:hover { filter:brightness(1.12) }
+button.ghost { background:transparent; color:var(--tenue); border:1px solid var(--bordo);
+               font-weight:500 }
+button.ghost:hover { color:var(--ciano); border-color:var(--ciano); filter:none }
 button.danger { background:#c9553f; color:#fff }
-button.small { padding:5px 10px; font-size:13px; margin:0 }
+button.small { padding:6px 11px; font-size:13px; margin:0 }
+
 table { width:100%; border-collapse:collapse; margin-top:8px }
-th,td { text-align:left; padding:8px 10px; border-bottom:1px solid #232a33; font-size:14px }
-th { color:#7d8b99; font-weight:500; font-size:12px; text-transform:uppercase; letter-spacing:.4px }
-.tag { display:inline-block; padding:2px 8px; border-radius:20px; font-size:12px }
-.own { background:#2d4a63; color:#b3d9f5 } .opr { background:#2c5340; color:#9ee6b8 }
-.lst { background:#3a3a44; color:#c3c3cf }
-.pending { background:#5c4a22; color:#f0d190 } .active { background:#2c5340; color:#9ee6b8 }
-.suspended { background:#5b2b2b; color:#f0a9a9 }
+th,td { text-align:left; padding:9px 10px; border-bottom:1px solid rgba(36,59,99,.7); font-size:14px }
+th { color:var(--tenue); font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.5px }
+.tag { display:inline-block; padding:2px 9px; border-radius:20px; font-size:12px; font-weight:600 }
+.own { background:rgba(0,229,255,.15); color:#7fe9ff }
+.opr { background:rgba(54,216,173,.16); color:#6ee7bf }
+.lst { background:rgba(143,179,217,.14); color:#a9c4e0 }
+.pending { background:rgba(255,212,59,.14); color:var(--giallo) }
+.active { background:rgba(54,216,173,.16); color:#6ee7bf }
+.suspended { background:rgba(255,107,107,.15); color:var(--rosso) }
+
 .msg { padding:11px 14px; border-radius:8px; margin-bottom:16px }
-.err { background:#3a1f1f; border:1px solid #6b3232; color:#f0b4b4 }
-.ok  { background:#1c3527; border:1px solid #2f5c42; color:#a6e8c1 }
-.mono { font-family:Consolas,monospace; font-size:13px; word-break:break-all;
-        background:#0f1216; padding:10px; border-radius:6px; border:1px solid #2c3542 }
+.err { background:rgba(255,107,107,.1); border:1px solid rgba(255,107,107,.4); color:#ffb4b4 }
+.ok  { background:rgba(54,216,173,.1); border:1px solid rgba(54,216,173,.4); color:#8fe8cd }
+.mono { font-family:Consolas,ui-monospace,monospace; font-size:13px; word-break:break-all;
+        background:var(--fondo2); padding:10px; border-radius:8px; border:1px solid var(--bordo);
+        color:#9fe9ff }
 .inline { display:inline } .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap }
-footer { color:#5a6673; font-size:12px; text-align:center; padding:24px }
+footer { color:#5d7ba3; font-size:12px; text-align:center; padding:26px }
+footer a { color:#5d7ba3 }
+
+/* pagina di scaricamento */
+.hero { text-align:center; padding:14px 0 6px }
+.hero h1 { font-size:30px; margin-bottom:8px }
+.hero .sub { font-size:16px; max-width:620px; margin:0 auto 22px }
+.scarica { display:inline-block; background:linear-gradient(90deg,var(--ciano),var(--acqua));
+           color:#06131c; font-weight:800; font-size:17px; padding:14px 30px; border-radius:10px }
+.scarica:hover { filter:brightness(1.12); text-decoration:none }
+.riquadri { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:14px }
+.passo { display:flex; gap:12px; margin-bottom:14px }
+.passo .n { flex:0 0 26px; height:26px; border-radius:50%; background:rgba(0,229,255,.15);
+            color:var(--ciano); font-weight:700; font-size:13px; display:flex;
+            align-items:center; justify-content:center }
 """
+
+
+# Da dove si prende il client. Il file non viene copiato sul VPS: la pagina
+# mostra il collegamento all'ultima release e il browser scarica da GitHub, che
+# ha la banda per farlo e tiene il conto degli scaricamenti.
+GITHUB_REPO = os.environ.get("DECOLINK_REPO", "iu8lmc/Decolink")
+RELEASE_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+RELEASE_PAGINA = f"https://github.com/{GITHUB_REPO}/releases/latest"
+RELEASE_CACHE_TTL = 900.0     # 15 min: GitHub concede 60 richieste l'ora per indirizzo
+
+_release_cache: dict = {"quando": 0.0, "dati": None}
+
+
+def ultima_release() -> dict | None:
+    """L'ultima release pubblicata su GitHub, o None se non si riesce a saperlo.
+
+    Il risultato si tiene in memoria per un quarto d'ora: senza cache, una
+    pagina condivisa in chat brucerebbe il limite di richieste di GitHub in
+    pochi minuti e resterebbe senza collegamenti proprio quando serve.
+    """
+    ora = time.time()
+    if _release_cache["dati"] is not None and ora - _release_cache["quando"] < RELEASE_CACHE_TTL:
+        return _release_cache["dati"]
+
+    try:
+        req = urllib.request.Request(RELEASE_API, headers={
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "Decolink-gateway",
+        })
+        with urllib.request.urlopen(req, timeout=6) as r:
+            grezzo = json.loads(r.read().decode("utf-8"))
+        dati = {
+            "tag": str(grezzo.get("tag_name", "")),
+            "nome": str(grezzo.get("name", "")),
+            "data": str(grezzo.get("published_at", ""))[:10],
+            "pagina": str(grezzo.get("html_url", RELEASE_PAGINA)),
+            "note": str(grezzo.get("body", ""))[:1200],
+            "file": [{
+                "nome": str(a.get("name", "")),
+                "url": str(a.get("browser_download_url", "")),
+                "mb": round(int(a.get("size", 0)) / 1048576.0, 1),
+                "conta": int(a.get("download_count", 0)),
+            } for a in grezzo.get("assets", []) if a.get("browser_download_url")],
+        }
+        _release_cache.update(quando=ora, dati=dati)
+        return dati
+    except Exception as ex:
+        # Non e' un errore da mostrare: la pagina funziona comunque, con il
+        # collegamento diretto a GitHub invece del pulsante preciso.
+        print(f"  [attenzione] release non leggibile da GitHub: {ex}")
+        _release_cache.update(quando=ora - RELEASE_CACHE_TTL + 60, dati=None)
+        return None
 
 
 def e(s) -> str:
@@ -119,10 +213,10 @@ def e(s) -> str:
 
 
 def page(titolo: str, corpo: str, utente=None, msg: str = "", errore: str = "") -> bytes:
-    nav = ""
+    nav = '<a href="/scarica">scarica il client</a>'
     if utente:
         nav = (f'<span>{e(utente["callsign"])}</span>'
-               f'<a href="/">stazioni</a>')
+               f'<a href="/">stazioni</a>' + nav)
         if utente["is_admin"]:
             nav += '<a href="/admin">amministrazione</a>'
         nav += ('<form method="post" action="/esci" class="inline">'
@@ -244,6 +338,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, self.form_accesso())
             if percorso == "/registrati":
                 return self._send(200, self.form_registrazione(conn))
+            if percorso in ("/scarica", "/download"):
+                return self.pagina_scarica(conn, utente)
             if percorso == "/admin":
                 return self.pagina_admin(conn, utente)
             if percorso.startswith("/stazione/"):
@@ -298,8 +394,10 @@ class Handler(BaseHTTPRequestHandler):
 <label>Password</label><input name="password" type="password" required>
 <button style="width:100%">Entra</button>
 </form>
-<p style="margin-top:18px;color:#7d8b99">Non hai un accesso?
-<a href="/registrati">Richiedilo</a>.</p></div>"""
+<p style="margin-top:18px;color:#8fb3d9">Non hai un accesso?
+<a href="/registrati">Richiedilo</a>.</p>
+<p style="margin-top:6px;color:#8fb3d9">Ti serve il programma?
+<a href="/scarica">Scarica Decolink</a>.</p></div>"""
         return page("accesso", corpo, None, msg, errore)
 
     def post_accesso(self, conn, dati):
@@ -713,6 +811,90 @@ L'<b>ascoltatore</b> riceve e basta.</p></div>
             "station_name": scelta["name"], "role": scelta["role"],
             "can_transmit": tok.can_transmit(scelta["role"]), "stations": elenco,
         })
+
+    def pagina_scarica(self, conn, utente):
+        """Pagina pubblica di scaricamento del client.
+
+        Sta fuori dal login perche' il client serve prima di averne uno: chi
+        arriva qui deve poter scaricare, vedere che gli occorre un accesso e
+        chiederlo, in quest'ordine.
+        """
+        rel = ultima_release()
+
+        if rel and rel["file"]:
+            # Prima l'eseguibile o l'archivio per Windows, che e' quello che
+            # cerca il 99% di chi arriva su questa pagina.
+            def peso(f):
+                n = f["nome"].lower()
+                return (0 if ("win" in n or n.endswith(".zip") or n.endswith(".exe")) else 1, n)
+            fs = sorted(rel["file"], key=peso)
+            principale = fs[0]
+            scaricato = sum(f["conta"] for f in rel["file"])
+            bottone = (f'<a class="scarica" href="{e(principale["url"])}">'
+                       f'Scarica Decolink {e(rel["tag"])}</a>'
+                       f'<div class="sub" style="margin-top:12px;font-size:14px">'
+                       f'{e(principale["nome"])} — {principale["mb"]} MB'
+                       + (f' — pubblicato il {e(rel["data"])}' if rel["data"] else "")
+                       + (f' — {scaricato} scaricamenti' if scaricato else "") + '</div>')
+            altri = ""
+            if len(fs) > 1:
+                voci = "".join(
+                    f'<li><a href="{e(f["url"])}">{e(f["nome"])}</a> '
+                    f'<span style="color:#8fb3d9">({f["mb"]} MB)</span></li>' for f in fs[1:])
+                altri = (f'<h2>Altri file di questa versione</h2>'
+                         f'<div class="card"><ul style="margin:0;padding-left:20px">{voci}</ul></div>')
+            note = ""
+            if rel["note"]:
+                note = (f'<h2>Novità di {e(rel["tag"])}</h2>'
+                        f'<div class="card" style="white-space:pre-wrap;color:#c9d8ea">'
+                        f'{e(rel["note"])}</div>')
+        else:
+            # GitHub non risponde, oppure non e' ancora stata pubblicata una
+            # release: si manda comunque la gente nel posto giusto.
+            bottone = (f'<a class="scarica" href="{e(RELEASE_PAGINA)}">Vai agli scaricamenti</a>'
+                       f'<div class="sub" style="margin-top:12px;font-size:14px">'
+                       f'l\'elenco delle versioni è su GitHub</div>')
+            altri = note = ""
+
+        corpo = f"""
+<div class="hero">
+<h1>Decolink</h1>
+<p class="sub">Porta la tua radio su Decodium Mobile: l'audio ricevuto e il
+controllo del rig viaggiano su internet, da casa al telefono, dovunque sia.</p>
+{bottone}
+</div>
+
+<div class="riquadri" style="margin-top:26px">
+  <div class="card"><b>Che cosa fa</b><p class="sub" style="margin:8px 0 0">
+  Manda al telefono l'audio del CODEC USB della radio e le fa da rigctld:
+  frequenza, modo e PTT senza installare Hamlib.</p></div>
+  <div class="card"><b>Che cosa serve</b><p class="sub" style="margin:8px 0 0">
+  Windows 64 bit, la radio collegata via USB e un accesso a questo gateway.
+  Niente da installare: si scompatta e si avvia.</p></div>
+  <div class="card"><b>Funziona ovunque</b><p class="sub" style="margin:8px 0 0">
+  Anche col telefono su dati mobili: PC e telefono escono verso il relay, quindi
+  non c'è nessun router da configurare.</p></div>
+</div>
+
+<h2>Come si parte</h2>
+<div class="card">
+  <div class="passo"><div class="n">1</div><div>Scarica l'archivio e scompattalo
+    dove vuoi, anche su una chiavetta.</div></div>
+  <div class="passo"><div class="n">2</div><div>Serve un accesso approvato:
+    {'ce l\'hai già.' if utente else '<a href="/registrati">richiedilo qui</a> indicando il tuo nominativo e la stazione.'}
+    </div></div>
+  <div class="passo"><div class="n">3</div><div>Avvia <span class="mono"
+    style="display:inline;padding:2px 6px">Decolink.exe</span>, scrivi
+    <b>{e(self.headers.get('Host', 'decolink.ft2.it'))}</b> come server di accesso,
+    entra con le tue credenziali e scegli la stazione.</div></div>
+  <div class="passo"><div class="n">4</div><div>Scegli l'ingresso audio della
+    radio, premi <b>Avvia</b> e sul telefono metti Collegamento = Relay.</div></div>
+</div>
+{note}
+{altri}
+<p class="sub" style="font-size:13px">Codice sorgente e cronologia delle versioni:
+<a href="https://github.com/{e(GITHUB_REPO)}">github.com/{e(GITHUB_REPO)}</a></p>"""
+        return self._send(200, page("scarica", corpo, utente))
 
     def api_stazioni(self, conn):
         """Elenco pubblico delle stazioni: serve solo a popolare la tendina
