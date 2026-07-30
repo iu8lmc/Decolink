@@ -56,6 +56,7 @@
 #include <QElapsedTimer>
 #include <QMutex>
 
+#include "cwkey.h"
 #include "dlproto.h"
 #include "lossless.h"
 #include "opusvoce.h"
@@ -324,7 +325,8 @@ public:
         m_profile = new QComboBox;
         m_profile->addItem(QStringLiteral("Voce — Opus, 39 kbit/s (consigliato)"), dl::PVoce);
         m_profile->addItem(QStringLiteral("CW — Opus banda stretta, 27 kbit/s"), dl::PCw);
-        m_profile->addItem(QStringLiteral("Digitali — senza perdite, ~115 kbit/s"), dl::PDigi);
+        m_profile->addItem(QStringLiteral("Digitali — senza perdite, 146 kbit/s"), dl::PDigi);
+        m_profile->addItem(QStringLiteral("CW a tasto — solo il ritmo, ~2 kbit/s"), dl::PCwKey);
         m_profile->addItem(QStringLiteral("PCM 48 kHz — 808 kbit/s, per client vecchi"), dl::PPcm48);
 
         // Quanti frame per pacchetto. Piu' se ne raggruppano, meno volte si paga
@@ -454,6 +456,25 @@ public:
         m_renew.setInterval(60000);
         connect(&m_renew, &QTimer::timeout, this, &Client::renewIfNeeded);
         m_renew.start();
+
+        // Generatore del tono per il CW a tasto in trasmissione: deve produrre
+        // audio senza interruzioni anche fra un pacchetto e il successivo,
+        // altrimenti la nota si spezzerebbe ogni 100 ms.
+        m_cwTx.setInterval(40);
+        connect(&m_cwTx, &QTimer::timeout, this, [this] {
+            if (!m_cwSuona) return;
+            QVector<qint16> const a = m_sintCw.genera(kRate * 40 / 1000);
+            feedTx(QByteArray(reinterpret_cast<const char*>(a.constData()),
+                              int(a.size()) * 2));
+            // Quando la coda e' finita si lascia sfumare e si smette: tenere il
+            // generatore acceso terrebbe occupato il CODEC del rig per niente.
+            if (!m_sintCw.inAttesa()) {
+                if (++m_cwVuoti > 25) { m_cwSuona = false; m_cwVuoti = 0; }
+            } else {
+                m_cwVuoti = 0;
+            }
+        });
+        m_cwTx.start();
         // aggiornamento contatori
         m_uiTimer.setInterval(500);
         connect(&m_uiTimer, &QTimer::timeout, this, &Client::refreshStats);
@@ -787,6 +808,18 @@ private slots:
             // Audio che il telefono vuole trasmettere, compresso: si decodifica
             // e finisce nel CODEC del rig come quello grezzo della v2.
             if (prof == dl::PPcm48) { feedTx(corpo); break; }
+            if (prof == dl::PCwKey) {
+                // Il telefono manda il ritmo del tasto: il tono lo si rigenera
+                // qui e si manda al rig, che in SSB lo trasmette come CW.
+                int nota = 700;
+                QVector<dl::EventoCw> ev;
+                if (dl::leggiCorpoCw(corpo, nota, ev)) {
+                    m_sintCw.nota(nota);
+                    m_sintCw.aggiungi(ev);
+                    m_cwSuona = true;
+                }
+                break;
+            }
             if (prof == dl::PDigi) {
                 // Blocco senza perdite a 12 kHz: si decomprime, si riporta a 48
                 // per la scheda del rig, e si chiede indietro quello che manca.
@@ -917,6 +950,12 @@ private slots:
         // blocchi di 40 ms, che a 12 kHz sono 480 campioni: una misura comoda per
         // il compressore e per il decodificatore che sta all'altro capo.
         quint8 const prof = profiloAttivo();
+
+        // CW a tasto: non ci sono frame da spedire, si guarda l'audio e si
+        // manda solo quando il tasto cambia stato. Se il corrispondente sta
+        // zitto, sul filo non passa niente.
+        if (prof == dl::PCwKey) { cwDaAudio(); return; }
+
         int const campioni = (prof == dl::PPcm48) ? kFrame
                            : (prof == dl::PDigi)  ? kDigiIngresso
                                                   : dl::kOpusFrame;
@@ -992,7 +1031,7 @@ private slots:
     quint8 profiloAttivo() const
     {
         quint8 const scelto = quint8(m_profile->currentData().toUInt());
-        if (scelto == dl::PPcm48 || scelto == dl::PDigi) return scelto;
+        if (scelto == dl::PPcm48 || scelto == dl::PDigi || scelto == dl::PCwKey) return scelto;
         return m_opusOut.pronto() ? scelto : dl::PPcm48;
     }
 
@@ -1005,6 +1044,44 @@ private slots:
         if (!m_peerSaAggr) return 1;
         if (profiloAttivo() == dl::PDigi) return 1;   // qui il blocco e' gia' da 40 ms
         return qBound(1, m_aggr->currentData().toInt(), dl::kMaxAggr);
+    }
+
+    // ---- CW a tasto ----
+
+    // Guarda l'audio della radio, ne ricava gli istanti del tasto e li spedisce.
+    // Gli eventi si raggruppano per 100 ms: mandarne uno per pacchetto vorrebbe
+    // dire pagare 38 byte di involucro per 2 byte di contenuto, e a questi
+    // livelli di banda l'involucro e' tutto. Cento millisecondi di ritardo su
+    // un punto che dura sessanta non spostano il ritmo di chi ascolta.
+    void cwDaAudio()
+    {
+        int const campioni = m_acc.size() / 2;
+        if (campioni <= 0) return;
+        QVector<dl::EventoCw> const ev =
+            m_rilCw.mangia(reinterpret_cast<const qint16*>(m_acc.constData()), campioni);
+        m_acc.clear();
+
+        // livello per la barra, dall'energia della nota trovata
+        m_rms = 0.7 * m_rms + 0.3 * qMin(1.0, m_rilCw.energia() * 4.0);
+
+        for (dl::EventoCw const& e : ev) m_cwDaSpedire.append(e);
+        if (m_cwDaSpedire.isEmpty()) return;
+        if (!targetReady()) { m_cwDaSpedire.clear(); return; }
+
+        qint64 const ora = QDateTime::currentMSecsSinceEpoch();
+        if (m_cwUltimoInvio != 0 && ora - m_cwUltimoInvio < 100 && m_cwDaSpedire.size() < 32)
+            return;
+        m_cwUltimoInvio = ora;
+
+        QByteArray const corpo = dl::corpoCw(m_rilCw.notaHz(), m_cwDaSpedire);
+        QByteArray const pkt = dl::pacchetto(dl::TAudioRx, dl::PCwKey, 0, 0,
+                                             quint16(m_seq++), m_tempoCampioni,
+                                             corpo.constData(), corpo.size());
+        m_cwEventi += quint64(m_cwDaSpedire.size());
+        m_cwDaSpedire.clear();
+        m_sock->writeDatagram(pkt, m_dstAddr, m_dstPort);
+        ++m_sent;
+        m_bytesUscita += quint64(pkt.size()) + 28;
     }
 
     // ---- ritrasmissione, solo per il profilo dei digitali ----
@@ -1135,7 +1212,12 @@ private slots:
                             .arg(kbps, 0, 'f', 1)
                             .arg(kbps * 450.0 / 1000.0, 0, 'f', 0)
                             .arg(m_sent);
-        if (prof == dl::PDigi) {
+        if (prof == dl::PCwKey) {
+            testo += QStringLiteral("   nota %1 Hz   tasto %2   eventi %3")
+                         .arg(m_rilCw.notaHz())
+                         .arg(m_rilCw.premuto() ? QStringLiteral("giù") : QStringLiteral("su"))
+                         .arg(m_cwEventi);
+        } else if (prof == dl::PDigi) {
             if (m_grezziDigi > 0)
                 testo += QStringLiteral("   compresso al %1% del grezzo")
                              .arg(double(m_compressiDigi) * 100.0 / double(m_grezziDigi), 0, 'f', 0);
@@ -1189,6 +1271,12 @@ private:
             m_decim.azzera(); m_interp.azzera();
             m_finestra.clear(); m_arrivati.clear(); m_ultimoRx = 0;
             m_grezziDigi = m_compressiDigi = 0;
+            return;
+        }
+        if (scelto == dl::PCwKey) {
+            m_opusOut.chiudi(); m_opusIn.chiudi();
+            m_rilCw.azzera(); m_sintCw.azzera();
+            m_cwDaSpedire.clear(); m_cwEventi = 0; m_cwUltimoInvio = 0;
             return;
         }
         if (scelto == dl::PPcm48) { m_opusOut.chiudi(); m_opusIn.chiudi(); return; }
@@ -1398,6 +1486,16 @@ private:
     quint16 m_ultimoRx {0};
     quint64 m_rimandati {0}, m_chiesti {0}, m_troppoTardi {0};
     quint64 m_grezziDigi {0}, m_compressiDigi {0};
+
+    // CW a tasto
+    dl::RilevatoreCw m_rilCw;
+    dl::SintetizzatoreCw m_sintCw;
+    QVector<dl::EventoCw> m_cwDaSpedire;
+    qint64 m_cwUltimoInvio {0};
+    quint64 m_cwEventi {0};
+    bool m_cwSuona {false};
+    int m_cwVuoti {0};
+    QTimer m_cwTx;
     // Si parte dal presupposto che l'altro capo non sappia leggere i pacchetti
     // raggruppati, e lo si scopre dal suo HELLO: meglio consumare piu' banda che
     // mandare a un client vecchio un formato che non capisce.
@@ -1610,6 +1708,155 @@ int main(int argc, char** argv)
                                      : QStringLiteral("ACCETTATO: sbagliato"));
             if (!scartato) tuttoBene = false;
             out << (tuttoBene ? "  tutte le prove passate\n" : "  QUALCOSA NON TORNA\n");
+        }
+
+        // ---- CW a tasto: la banda conta poco, conta che il ritmo sopravviva ----
+        out << "\n";
+        {
+            // "CQ DE IU8LMC K" a 20 parole al minuto: il punto dura 60 ms.
+            // Costruito con le durate esatte, cosi' si puo' confrontare quello
+            // che il rilevatore ha capito con quello che c'era davvero.
+            int const punto = 60;
+            const char* morse[] = {
+                "-.-.", "--.-", " ", "-..", ".", " ",
+                "..", "..-", "---.", ".-..", "--", "-.-.", "-...", " ", "-.-"
+            };
+            struct Tratto { bool giu; int ms; };
+            QVector<Tratto> voluti;
+            // Mezzo secondo di sola banda prima di cominciare: e' come va nella
+            // realta' (si apre il collegamento, si sente il fruscio, poi arriva
+            // qualcuno) e da' al rilevatore il tempo di formare le soglie.
+            voluti.append({ false, 500 });
+            for (const char* lettera : morse) {
+                if (lettera[0] == ' ') { voluti.append({ false, punto * 4 }); continue; }
+                for (int i = 0; lettera[i]; ++i) {
+                    voluti.append({ true, lettera[i] == '.' ? punto : punto * 3 });
+                    voluti.append({ false, punto });
+                }
+                voluti.append({ false, punto * 2 });      // pausa fra lettere
+            }
+
+            // Audio: tono a 700 Hz con attacco morbido, piu' un po' di fruscio,
+            // perche' un rilevatore che funziona solo sul segnale pulito non
+            // serve a niente.
+            QVector<qint16> audio;
+            double fase = 0, amp = 0;
+            quint32 rnd = 4242;
+            int msTot = 0;
+            for (Tratto const& t : voluti) {
+                int const n = t.ms * 48;
+                for (int i = 0; i < n; ++i) {
+                    amp += t.giu ? 1.0 / 240.0 : -1.0 / 240.0;
+                    amp = qBound(0.0, amp, 1.0);
+                    fase += 2 * M_PI * 700.0 / 48000.0;
+                    rnd = rnd * 1103515245u + 12345u;
+                    double const fruscio = (double(int((rnd >> 16) & 0x7FFF)) / 16384.0 - 1.0) * 0.02;
+                    audio.append(qint16(qBound(-32768.0,
+                                               (amp * 0.55 * std::sin(fase) + fruscio) * 32000.0,
+                                               32767.0)));
+                }
+                msTot += t.ms;
+            }
+
+            dl::RilevatoreCw ril;
+            QVector<dl::EventoCw> visti;
+            qint64 byteRete = 0;
+            int pacchetti = 0;
+            QVector<dl::EventoCw> gruppo;
+            int msDaInvio = 0;
+            // Si simula anche il raggruppamento a 100 ms, come fa il client.
+            for (int i = 0; i + dl::kCwBlocco <= audio.size(); i += dl::kCwBlocco) {
+                QVector<dl::EventoCw> const ev = ril.mangia(audio.constData() + i, dl::kCwBlocco);
+                for (dl::EventoCw const& e : ev) { gruppo.append(e); visti.append(e); }
+                msDaInvio += dl::kCwMs;
+                if (!gruppo.isEmpty() && msDaInvio >= 100) {
+                    byteRete += dl::corpoCw(ril.notaHz(), gruppo).size() + dl::kHdr + 28;
+                    ++pacchetti;
+                    gruppo.clear();
+                    msDaInvio = 0;
+                }
+            }
+            if (!gruppo.isEmpty()) {
+                byteRete += dl::corpoCw(ril.notaHz(), gruppo).size() + dl::kHdr + 28;
+                ++pacchetti;
+            }
+
+            double const secondiCw = double(msTot) / 1000.0;
+            double const kbps = double(byteRete) * 8.0 / secondiCw / 1000.0;
+            out << QStringLiteral("%1  %2 kbit/s  %3 MB/ora   %4× meno del PCM\n")
+                       .arg(QStringLiteral("CW a tasto (solo il ritmo)"), -32)
+                       .arg(kbps, 8, 'f', 1).arg(kbps * 0.45, 6, 'f', 0)
+                       .arg(pcmKbps / kbps, 0, 'f', 0);
+            out << QStringLiteral("      %1 s di trasmissione, %2 eventi in %3 pacchetti, nota "
+                                  "riconosciuta %4 Hz\n")
+                       .arg(secondiCw, 0, 'f', 1).arg(visti.size()).arg(pacchetti).arg(ril.notaHz());
+
+            // La prova vera: le durate riconosciute corrispondono a quelle
+            // trasmesse? Prima si fondono i tratti consecutivi con lo stesso
+            // stato — le pause fra simboli e fra lettere sono silenzi attaccati,
+            // e il rilevatore vede giustamente un solo intervallo.
+            QVector<Tratto> fusi;
+            for (Tratto const& t : voluti) {
+                if (!fusi.isEmpty() && fusi.last().giu == t.giu) fusi.last().ms += t.ms;
+                else fusi.append(t);
+            }
+
+            // Il deltaMs di un evento e' la durata del tratto che lo precede,
+            // quindi visti[i] va confrontato con fusi[i]. Il primo si salta: e'
+            // misurato dalla fine del periodo di apprendimento, non dall'inizio
+            // dell'audio, e sarebbe un confronto senza senso.
+            int confrontati = 0, entro10 = 0, peggiore = 0;
+            for (int i = 1; i < visti.size() && i < fusi.size(); ++i) {
+                int const errore = std::abs(int(visti[i].deltaMs) - fusi[i].ms);
+                ++confrontati;
+                if (errore <= 10) ++entro10;
+                peggiore = qMax(peggiore, errore);
+            }
+            out << "      primi tratti (atteso -> misurato):";
+            for (int i = 1; i < visti.size() && i < fusi.size() && i <= 6; ++i)
+                out << QStringLiteral("  %1%2->%3")
+                           .arg(fusi[i].giu ? QStringLiteral("giù ") : QStringLiteral("su "))
+                           .arg(fusi[i].ms).arg(visti[i].deltaMs);
+            out << "\n";
+            out << QStringLiteral("      durate confrontate: %1, entro 10 ms: %2, errore massimo %3 ms\n")
+                       .arg(confrontati).arg(entro10).arg(peggiore);
+            bool const ritmoOk = confrontati > 20 && entro10 >= confrontati * 9 / 10 && peggiore <= 20;
+            out << QStringLiteral("      %1\n")
+                       .arg(ritmoOk ? QStringLiteral("il ritmo sopravvive al viaggio")
+                                    : QStringLiteral("ATTENZIONE: il ritmo si deforma"));
+
+            // Andata e ritorno: si rigenera il tono dagli eventi e lo si ripassa
+            // dal rilevatore. Se il ritmo esce di nuovo uguale, tutta la catena
+            // — rilevatore, formato, sintetizzatore — conserva quello che deve
+            // conservare. E' una prova piu' onesta del confronto con l'audio di
+            // partenza, che sarebbe sensibile a qualche millisecondo di sfasamento
+            // senza che questo significhi niente per chi ascolta.
+            dl::SintetizzatoreCw sint;
+            sint.nota(ril.notaHz());
+            sint.aggiungi(visti);
+            QVector<qint16> const rifatto = sint.genera(audio.size());
+
+            dl::RilevatoreCw ril2;
+            QVector<dl::EventoCw> visti2;
+            for (int i = 0; i + dl::kCwBlocco <= rifatto.size(); i += dl::kCwBlocco)
+                for (dl::EventoCw const& e : ril2.mangia(rifatto.constData() + i, dl::kCwBlocco))
+                    visti2.append(e);
+
+            int rifatti = 0, rifattiOk = 0, peggioreRif = 0;
+            for (int i = 1; i < visti.size() && i < visti2.size(); ++i) {
+                int const errore = std::abs(int(visti2[i].deltaMs) - int(visti[i].deltaMs));
+                ++rifatti;
+                if (errore <= 10) ++rifattiOk;
+                peggioreRif = qMax(peggioreRif, errore);
+            }
+            out << QStringLiteral("      andata e ritorno: %1 eventi rigenerati su %2, "
+                                  "durate entro 10 ms: %3/%4, errore massimo %5 ms\n")
+                       .arg(visti2.size()).arg(visti.size())
+                       .arg(rifattiOk).arg(rifatti).arg(peggioreRif);
+            out << QStringLiteral("      %1\n")
+                       .arg(rifatti > 20 && rifattiOk >= rifatti * 9 / 10 && peggioreRif <= 20
+                                ? QStringLiteral("il tono rigenerato ripete lo stesso ritmo")
+                                : QStringLiteral("ATTENZIONE: la rigenerazione altera il ritmo"));
         }
 
         out << "\nNota: non si riporta un rapporto segnale/rumore fra originale e\n"

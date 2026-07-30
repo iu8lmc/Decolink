@@ -43,11 +43,12 @@ enum Tipo : quint8 {
 // Profili. PCM48 e' la v2 travestita: serve come punto di caduta quando l'altro
 // capo non sa fare altro.
 enum Profilo : quint8 {
-    PPcm48 = 0,     // 48 kHz int16 grezzo, 786 kbit/s
-    PVoce  = 1,     // Opus banda 6 kHz, ~28 kbit/s
-    PCw    = 2,     // Opus banda 4 kHz, ~15 kbit/s
-    PDigi  = 3,     // PCM 12 kHz senza perdite, ~130 kbit/s
+    PPcm48 = 0,     // 48 kHz int16 grezzo, 808 kbit/s
+    PVoce  = 1,     // Opus banda 6 kHz, 32 kbit/s a 40 ms
+    PCw    = 2,     // Opus banda 4 kHz, 20 kbit/s a 40 ms
+    PDigi  = 3,     // PCM 12 kHz senza perdite, 146 kbit/s
     PEmrg  = 4,     // Codec2 su FreeDV, 0,7 kbit/s
+    PCwKey = 5,     // solo gli istanti del tasto, il tono si rigenera all'arrivo
 };
 
 enum Flag : quint8 {
@@ -196,6 +197,7 @@ inline const char* nomeProfilo(quint8 p)
     case PCw:    return "CW (Opus)";
     case PDigi:  return "digitali (senza perdite)";
     case PEmrg:  return "emergenza (Codec2)";
+    case PCwKey: return "CW a tasto (solo il ritmo)";
     default:     return "?";
     }
 }

@@ -36,6 +36,7 @@ Da qui il principio della v3:
 | `VOCE` rete lenta | Opus 16 kbit/s | 31,2 | **24,2** | — | **fatto** |
 | `CW` | Opus 12 kbit/s, banda 4 kHz | 27,2 | **20,2** | 17,7 | **fatto** |
 | `DIGI` | PCM 12 kHz senza perdite | **145,7 kbit/s** (blocchi da 40 ms) | | | **fatto** |
+| `CW-KEY` | solo gli istanti del tasto | **2,4 kbit/s** — 339× meno del PCM | | | **fatto** |
 | `EMRG` | Codec2 700C su FreeDV | 0,7 kbit/s | | | da fare |
 
 Tutti i numeri sono **misurati** con `decolink.exe --codectest` su 30 secondi di
@@ -132,11 +133,29 @@ Un segnale CW sta in 200 Hz. Trasportarne 3 kHz è sprecare il 93% della banda
 per sentire il rumore accanto. Il profilo `CW` filtra a 800 Hz — abbastanza per
 sentire chi chiama poco fuori nota, che è ciò che serve davvero.
 
-Per chi ha una connessione al limite è previsto `CW-KEY`, che non manda audio
-affatto: il gateway riconosce l'inviluppo della nota e trasmette gli istanti di
-apertura e chiusura del tasto, ~50 bit/s. Il client risintetizza una nota
-pulita. Si perde il contesto (QSB, interferenze, gli altri sulla frequenza),
-quindi resta un'opzione dichiarata, non un'astuzia silenziosa.
+Per chi ha una connessione al limite c'è `CW-KEY`, che non manda audio affatto:
+il gateway riconosce la nota, ne segue l'inviluppo e trasmette solo gli istanti in
+cui il tasto si apre e si chiude. Il ricevente rigenera il tono.
+
+**2,4 kbit/s misurati**, 339× meno del PCM. L'informazione vera sono 160 bit/s —
+due byte per transizione, una decina di transizioni al secondo a 20 parole al
+minuto — e il resto è ancora una volta l'involucro: gli eventi si raggruppano ogni
+100 ms, e ogni datagramma paga i suoi 38 byte di intestazioni. Cento millisecondi
+di ritardo su un punto che dura sessanta non spostano il ritmo di chi ascolta.
+
+La prova che conta non è la banda ma il **ritmo**: su "CQ DE IU8LMC K" a 20 parole
+al minuto, con fruscio sopra il segnale, tutte e 75 le durate dei tratti tornano
+entro 10 ms, con errore massimo di 5 ms — la risoluzione del rilevatore. E
+ripassando il tono rigenerato dal rilevatore si ottiene lo stesso ritmo: la catena
+completa non deforma niente.
+
+Cosa si perde, e va detto chiaro: **tutto il contesto.** Non si sente più chi
+chiama poco fuori nota, non si sente il QSB, non si sente il QRM che copre il
+corrispondente, non si sente se c'è un'altra stazione sulla frequenza. Si sente un
+tono pulito generato da un computer, che ripete il ritmo di ciò che il rilevatore
+ha creduto di vedere. Per leggere un nominativo in una banda pulita è perfetto;
+per operare in un contest è inutilizzabile. Per questo si chiede esplicitamente e
+non scatta da solo quando la rete peggiora.
 
 ## 3. Latenza: la distinzione che cambia tutto
 
@@ -318,7 +337,7 @@ si perde rispetto all'ascolto locale, il profilo non va bene.
    blocco ricostruito identico, richieste di rimando instradate dal relay.
    Resta da dimostrare sul campo la promessa che conta: **zero decodifiche perse**
    rispetto all'ascolto locale (vedi §9).
-7. **`CW-KEY`** — solo inviluppo del tasto, ~50 bit/s.
+7. ~~**`CW-KEY`**~~ — **fatto**: 2,4 kbit/s, ritmo conservato entro 5 ms.
 8. **`EMRG` su FreeDV** — per ultimo, perché richiede due radio per essere
    provato seriamente, non un banco di prova.
 
