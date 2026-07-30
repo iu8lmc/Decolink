@@ -144,6 +144,24 @@ def cmd_admin(conn, args):
                                  else "è amministratore."))
 
 
+def cmd_cancella(conn, args):
+    """Cancella un utente dal terminale, con conferma."""
+    u = trova_utente(conn, args.email)
+    stazioni = db.list_stations(conn, owner_id=u["id"])
+    if stazioni:
+        sys.exit(f"{u['callsign']} è titolare di: "
+                 + ", ".join(s["slug"] for s in stazioni)
+                 + "\ncambia prima il titolare, altrimenti resterebbero stazioni "
+                   "che nessuno può amministrare.")
+    if not args.forza:
+        risposta = input(f"cancellare {u['callsign']} <{u['email']}> definitivamente? [s/N] ")
+        if risposta.strip().lower() not in ("s", "si", "sì", "y"):
+            print("annullato.")
+            return
+    db.delete_user(conn, u["id"])
+    print(f"{u['callsign']} cancellato. I registri restano, col nominativo dentro.")
+
+
 def cmd_password(conn, args):
     u = trova_utente(conn, args.email)
     print(f"nuova password per {u['callsign']} <{u['email']}>")
@@ -228,6 +246,11 @@ def main():
         p = sub.add_parser(nome, help=aiuto)
         p.add_argument("email")
         p.set_defaults(f=fn)
+
+    p = sub.add_parser("cancella", help="cancella un utente")
+    p.add_argument("email")
+    p.add_argument("--forza", action="store_true", help="senza chiedere conferma")
+    p.set_defaults(f=cmd_cancella)
 
     p = sub.add_parser("admin", help="rende (o non rende più) amministratore")
     p.add_argument("email")

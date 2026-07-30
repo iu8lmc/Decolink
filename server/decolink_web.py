@@ -388,6 +388,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.post_stazione_stato(conn, utente, dati)
             if percorso == "/chiave":
                 return self.post_chiave(conn, utente, dati)
+            if percorso == "/utente-cancella":
+                return self.post_utente_cancella(conn, utente, dati)
             self._send(404, page("non trovata", "<h1>Pagina inesistente</h1>", utente))
         finally:
             conn.close()
@@ -648,6 +650,15 @@ L'<b>ascoltatore</b> riceve e basta.</p></div>
 <input type="hidden" name="user" value="{u['id']}">
 <input type="hidden" name="torna" value="/admin">
 <button class="small ghost" name="stato" value="{stato}">{etichetta}</button></form> """
+            # La cancellazione non si offre per se stessi: un amministratore che
+            # si cancella lascia il pannello senza nessuno che possa entrarci.
+            if u["id"] != utente["id"]:
+                azioni += f"""
+<form method="post" action="/utente-cancella" class="inline"
+      onsubmit="return confirm('Cancellare {e(u['callsign'])} definitivamente?')">
+<input type="hidden" name="csrf" value="{e(csrf)}">
+<input type="hidden" name="user" value="{u['id']}">
+<button class="small danger">cancella</button></form> """
             ut += (f'<tr><td><b>{e(u["callsign"])}</b></td><td>{e(u["name"])}</td>'
                    f'<td>{e(u["email"])}</td>'
                    f'<td><span class="tag {e(u["status"])}">{e(STATI_IT[u["status"]])}</span></td>'
@@ -778,6 +789,30 @@ L'<b>ascoltatore</b> riceve e basta.</p></div>
             return self._send(403, page("vietato", "<h1>Non puoi gestire questa stazione</h1>", utente))
         db.set_station_enabled(conn, st["id"], str(dati.get("enabled", "1")) == "1")
         return self._redirect(f"/stazione/{st['slug']}")
+
+    def post_utente_cancella(self, conn, utente, dati):
+        """Cancella un utente. Solo gli amministratori, e mai se stessi."""
+        if not utente["is_admin"]:
+            return self._send(403, page("vietato", "<h1>Riservato agli amministratori</h1>", utente))
+        try:
+            uid = int(dati.get("user", 0))
+        except ValueError:
+            return self._redirect("/admin")
+        if uid == utente["id"]:
+            return self._redirect("/admin")
+        vittima = db.user_by_id(conn, uid)
+        if not vittima:
+            return self._redirect("/admin")
+        try:
+            db.delete_user(conn, uid)
+        except ValueError as ex:
+            return self._send(409, page("non si può", f"<h1>Impossibile cancellare "
+                                        f"{e(vittima['callsign'])}</h1>"
+                                        f"<p class='sub'>{e(str(ex))}.</p>"
+                                        f"<p><a href='/admin'>torna</a></p>", utente))
+        print(f"  {utente['callsign']} cancella l'utente {vittima['callsign']} "
+              f"<{vittima['email']}>")
+        return self._redirect("/admin")
 
     def post_chiave(self, conn, utente, dati):
         """Emette una chiave di stazione per i programmi che non sanno accedere.

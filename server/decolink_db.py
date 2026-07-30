@@ -231,6 +231,26 @@ def set_password(conn, user_id: int, password: str) -> None:
     conn.commit()
 
 
+def delete_user(conn, user_id: int) -> None:
+    """Cancella un utente e tutto quello che ne dipende.
+
+    I permessi e le sessioni web se ne vanno con lui (ON DELETE CASCADE). I
+    registri di collegamenti e trasmissioni restano, con il nominativo scritto
+    dentro: servono a dire chi ha operato la radio, e cancellarli insieme
+    all'utente vorrebbe dire poter far sparire le proprie tracce cancellando il
+    proprio accesso.
+
+    Rifiuta di cancellare chi e' titolare di una stazione: prima si cambia
+    titolare, altrimenti resterebbe una stazione che nessuno puo' amministrare.
+    """
+    row = conn.execute("SELECT count(*) AS n FROM stations WHERE owner_id = ?",
+                       (user_id,)).fetchone()
+    if row and row["n"] > 0:
+        raise ValueError("è titolare di una stazione: cambia prima il titolare")
+    conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+    conn.commit()
+
+
 def list_users(conn, status: str | None = None):
     if status:
         return conn.execute("SELECT * FROM users WHERE status = ? ORDER BY created_at DESC",
