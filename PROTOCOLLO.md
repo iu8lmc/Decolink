@@ -35,7 +35,7 @@ Da qui il principio della v3:
 | `VOCE` | Opus 24 kbit/s, banda 6 kHz | 39,2 kbit/s | **32,2** | 29,7 | **fatto** |
 | `VOCE` rete lenta | Opus 16 kbit/s | 31,2 | **24,2** | — | **fatto** |
 | `CW` | Opus 12 kbit/s, banda 4 kHz | 27,2 | **20,2** | 17,7 | **fatto** |
-| `DIGI` | PCM 12 kHz lossless | ~110–150 kbit/s | | | da fare |
+| `DIGI` | PCM 12 kHz senza perdite | **145,7 kbit/s** (blocchi da 40 ms) | | | **fatto** |
 | `EMRG` | Codec2 700C su FreeDV | 0,7 kbit/s | | | da fare |
 
 Tutti i numeri sono **misurati** con `decolink.exe --codectest` su 30 secondi di
@@ -96,10 +96,35 @@ segnale**. In pratica Opus a 48 kbit/s decodifica quasi tutto, ma "quasi" è la
 parola sbagliata quando si sta inseguendo una stazione al limite: il gateway non
 deve essere il motivo per cui una decodifica manca.
 
-Quindi sui digitali si comprime **senza perdere niente**: PCM a 12 kHz — che
-copre l'intero passband dei modi digitali con margine — compresso con FLAC, che
-sull'audio di una radio rende il 55–65%. Sono 110–150 kbit/s: cinque volte meno
-di oggi, con l'audio identico bit per bit a quello che esce dal rig.
+Quindi sui digitali si comprime **senza perdere niente**: 145,7 kbit/s misurati,
+5,5× meno del PCM, con l'audio identico campione per campione a quello uscito dal
+rig — verificato su ogni blocco, non a campione.
+
+**12 kHz non è un numero scelto a caso: è la frequenza a cui campiona WSJT-X.**
+Mandando 12 kHz si consegna al decodificatore esattamente il formato che
+userebbe se la radio fosse sul tavolo, e 6 kHz di banda coprono con abbondanza
+tutto ciò che vive in un passband SSB (FT8 sta sotto i 3 kHz).
+
+La compressione usa la stessa tecnica di FLAC — predittore lineare più codifica
+di Rice — ma su blocchi da 40 ms indipendenti l'uno dall'altro, così un pacchetto
+perso non rende illeggibili quelli dopo. I coefficienti del predittore si
+calcolano per blocco e vivono in **aritmetica intera**: con i numeri in virgola
+mobile due macchine potrebbero arrotondare in modo diverso, e "senza perdite"
+diventerebbe "senza perdite se il decodificatore è della stessa marca".
+
+Quanto si comprime dipende dal rumore della banda, non dal compressore:
+
+| segnale | resa |
+|---|---|
+| silenzio | 7% |
+| tono puro | 53% |
+| segnali digitali su fruscio (misura di riferimento) | 72% |
+| rumore a tutto volume | 105% |
+
+L'ultimo caso non è un difetto: il rumore bianco è incomprimibile per definizione,
+e un compressore onesto che non trova struttura aggiunge il proprio involucro
+invece di inventarsi un risparmio. Su una banda tranquilla si scende, su una
+banda affollata di QRM si sale — il limite è l'entropia di ciò che esce dal rig.
 
 ### Perché il CW ha un profilo suo
 
@@ -289,8 +314,10 @@ si perde rispetto all'ascolto locale, il profilo non va bene.
 4. ~~**Adattamento dai report**~~ — **fatto**: la perdita segnalata regola la
    ridondanza di Opus e fa scendere il bitrate.
 5. ~~**Più frame per datagramma**~~ — **fatto**: −18% in fonia, −26% in CW a 40 ms.
-6. **`DIGI` lossless con ritrasmissione** — il profilo che deve dimostrare zero
-   decodifiche perse.
+6. ~~**`DIGI` lossless con ritrasmissione**~~ — **fatto**: 145,7 kbit/s, ogni
+   blocco ricostruito identico, richieste di rimando instradate dal relay.
+   Resta da dimostrare sul campo la promessa che conta: **zero decodifiche perse**
+   rispetto all'ascolto locale (vedi §9).
 7. **`CW-KEY`** — solo inviluppo del tasto, ~50 bit/s.
 8. **`EMRG` su FreeDV** — per ultimo, perché richiede due radio per essere
    provato seriamente, non un banco di prova.
@@ -302,10 +329,18 @@ meno di prima e il CW quaranta.
 
 Tutto questo è misurato al banco, non in aria. Perché serva a qualcuno devono
 accadere due cose: **Decodium Mobile deve saper parlare v3** (negoziazione al §5,
-formato al §4), e il profilo va **provato con una radio vera** — un'ora di ascolto
-in fonia e una sessione di CW, per sentire se 6 kHz di banda e 24 kbit/s bastano
-davvero all'orecchio di chi opera. Finché non succede, il gateway ripiega da solo
-sul PCM e nessuno si accorge di niente.
+formato al §4), e i profili vanno **provati con una radio vera** — un'ora di
+ascolto in fonia, una sessione di CW, e per i digitali il confronto delle
+decodifiche descritto al §9. Finché non succede, il gateway ripiega da solo sul
+PCM e nessuno si accorge di niente.
+
+Sulla ritrasmissione va detto con precisione cos'è verificato e cos'è no: il
+percorso delle richieste **è provato** (il relay le instrada al gateway, i
+pacchetti rimandati tornano a chi li ha chiesti, un ascoltatore non può nemmeno
+chiederli), ma il comportamento sotto perdita vera — quante richieste servono su
+una rete mobile, quanti pacchetti arrivano fuori finestra — si misura solo con
+audio reale che scorre. La finestra è di 3 secondi: oltre, il pezzo non servirebbe
+più, perché la fetta di FT8 a cui apparteneva è già stata decodificata.
 
 ## 11. Quello che questo protocollo non farà
 

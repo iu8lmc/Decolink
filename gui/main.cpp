@@ -34,6 +34,7 @@
 #include <QJsonObject>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMap>
 #include <QMediaDevices>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
@@ -56,7 +57,9 @@
 #include <QMutex>
 
 #include "dlproto.h"
+#include "lossless.h"
 #include "opusvoce.h"
+#include "resample.h"
 
 #include <cmath>
 
@@ -65,6 +68,11 @@ namespace {
 constexpr int kRate      = 48000;
 constexpr int kFrame     = kRate / 100;   // 480 campioni = 10 ms
 constexpr int kHdrSize   = 22;
+// Blocco dei digitali: 40 ms, che a 48 kHz in ingresso sono 1920 campioni e a
+// 12 kHz in uscita 480. Quaranta millisecondi sono una misura comoda per il
+// compressore (abbastanza contesto per predire bene) e irrilevante per la
+// latenza, che in questo profilo non conta.
+constexpr int kDigiIngresso = kRate / 25;
 // v2: per entrare nel relay serve un token firmato dal servizio di accesso.
 // La v1, in cui bastava indovinare il nome della stanza, non e' piu' accettata.
 constexpr quint8 kProtoVer = 2;
@@ -316,6 +324,7 @@ public:
         m_profile = new QComboBox;
         m_profile->addItem(QStringLiteral("Voce — Opus, 39 kbit/s (consigliato)"), dl::PVoce);
         m_profile->addItem(QStringLiteral("CW — Opus banda stretta, 27 kbit/s"), dl::PCw);
+        m_profile->addItem(QStringLiteral("Digitali — senza perdite, ~115 kbit/s"), dl::PDigi);
         m_profile->addItem(QStringLiteral("PCM 48 kHz — 808 kbit/s, per client vecchi"), dl::PPcm48);
 
         // Quanti frame per pacchetto. Piu' se ne raggruppano, meno volte si paga
@@ -778,6 +787,17 @@ private slots:
             // Audio che il telefono vuole trasmettere, compresso: si decodifica
             // e finisce nel CODEC del rig come quello grezzo della v2.
             if (prof == dl::PPcm48) { feedTx(corpo); break; }
+            if (prof == dl::PDigi) {
+                // Blocco senza perdite a 12 kHz: si decomprime, si riporta a 48
+                // per la scheda del rig, e si chiede indietro quello che manca.
+                QVector<qint16> const campioni = dl::decomprimi(corpo);
+                if (campioni.isEmpty()) break;      // blocco tagliato o incoerente
+                notaRicevuto(seq, from, fromPort);
+                QVector<qint16> const su = m_interp.su(campioni.constData(), campioni.size());
+                feedTx(QByteArray(reinterpret_cast<const char*>(su.constData()),
+                                  int(su.size()) * 2));
+                break;
+            }
             if (!m_opusIn.pronto() && !m_opusIn.apri(24000, 6000)) break;
             // Un salto nella sequenza vuol dire pacchetti persi: si chiede a
             // Opus di inventare i pezzi mancanti, altrimenti si sentirebbero
@@ -808,6 +828,9 @@ private slots:
         }
         case dl::TCtrl:
             gestisciCtrl(corpo, from, fromPort);
+            break;
+        case dl::TNack:
+            rimanda(corpo, from, fromPort);
             break;
         case dl::TPing:
             m_sock->writeDatagram(dl::pacchetto(dl::TPing, prof, 0, 0, seq, tempo),
@@ -890,9 +913,13 @@ private slots:
 
         // Con Opus il frame e' di 20 ms (960 campioni): e' la misura per cui il
         // codec e' pensato. In PCM si resta a 10 ms come nella v2, per non
-        // cambiare il passo ai client che la parlano.
+        // cambiare il passo ai client che la parlano. Nei digitali si lavora a
+        // blocchi di 40 ms, che a 12 kHz sono 480 campioni: una misura comoda per
+        // il compressore e per il decodificatore che sta all'altro capo.
         quint8 const prof = profiloAttivo();
-        int const campioni = (prof == dl::PPcm48) ? kFrame : dl::kOpusFrame;
+        int const campioni = (prof == dl::PPcm48) ? kFrame
+                           : (prof == dl::PDigi)  ? kDigiIngresso
+                                                  : dl::kOpusFrame;
         int const frameBytes = campioni * 2;
 
         while (m_acc.size() >= frameBytes) {
@@ -910,6 +937,25 @@ private slots:
             QByteArray pkt;
             if (prof == dl::PPcm48) {
                 pkt = hfgwPacket(kFlagAudio, m_seq++, frame.constData(), frame.size());
+            } else if (prof == dl::PDigi) {
+                // 48 -> 12 kHz filtrando come si deve, poi compressione senza
+                // perdite: il decodificatore riceve esattamente i campioni che
+                // sono usciti dal rig, non una loro approssimazione.
+                QVector<qint16> const giu =
+                    m_decim.giu(reinterpret_cast<const qint16*>(frame.constData()), campioni);
+                if (giu.isEmpty()) continue;
+                QByteArray const blocco = dl::comprimi(giu.constData(), giu.size());
+                if (blocco.isEmpty()) continue;
+                quint16 const s = quint16(m_seq++);
+                pkt = dl::pacchetto(dl::TAudioRx, prof, 0, 0, s, m_tempoCampioni,
+                                    blocco.constData(), blocco.size());
+                m_tempoCampioni += quint32(giu.size());
+                // Si tiene da parte per poterlo rimandare: nei digitali la
+                // latenza non conta (FT8 decodifica a fette di 15 secondi) e un
+                // buco nell'audio rovinerebbe l'intera fetta.
+                ricorda(s, pkt);
+                m_grezziDigi += quint64(giu.size()) * 2;
+                m_compressiDigi += quint64(blocco.size());
             } else {
                 QByteArray const compresso =
                     m_opusOut.codifica(reinterpret_cast<const qint16*>(frame.constData()));
@@ -946,7 +992,7 @@ private slots:
     quint8 profiloAttivo() const
     {
         quint8 const scelto = quint8(m_profile->currentData().toUInt());
-        if (scelto == dl::PPcm48) return dl::PPcm48;
+        if (scelto == dl::PPcm48 || scelto == dl::PDigi) return scelto;
         return m_opusOut.pronto() ? scelto : dl::PPcm48;
     }
 
@@ -957,7 +1003,85 @@ private slots:
     int aggrAttivo() const
     {
         if (!m_peerSaAggr) return 1;
+        if (profiloAttivo() == dl::PDigi) return 1;   // qui il blocco e' gia' da 40 ms
         return qBound(1, m_aggr->currentData().toInt(), dl::kMaxAggr);
+    }
+
+    // ---- ritrasmissione, solo per il profilo dei digitali ----
+
+    // Tiene un pacchetto a portata di mano per qualche secondo, in caso venga
+    // richiesto di nuovo. La finestra e' corta di proposito: oltre i 3 secondi
+    // il pezzo non servirebbe piu' a nessuno, perche' la fetta di FT8 a cui
+    // apparteneva e' già stata decodificata.
+    void ricorda(quint16 seq, const QByteArray& pkt)
+    {
+        m_finestra.insert(seq, { pkt, QDateTime::currentMSecsSinceEpoch() });
+        if (m_finestra.size() > 200) {
+            qint64 const ora = QDateTime::currentMSecsSinceEpoch();
+            for (auto it = m_finestra.begin(); it != m_finestra.end();)
+                it = (ora - it->quando > 3000) ? m_finestra.erase(it) : ++it;
+        }
+    }
+
+    // Qualcuno chiede indietro dei pacchetti: si rimandano quelli che si hanno
+    // ancora. Chi arriva tardi non riceve nulla e lo scoprira' dal silenzio: e'
+    // meglio che tenere in memoria mezz'ora di audio per un ripescaggio inutile.
+    void rimanda(const QByteArray& corpo, const QHostAddress& a, quint16 p)
+    {
+        if (corpo.size() < 2 || !m_sock) return;
+        int const quanti = int(uchar(corpo.at(1)));
+        int rimandati = 0, mancanti = 0;
+        for (int i = 0; i < quanti && 2 + 2 * i + 1 < corpo.size(); ++i) {
+            quint16 const s = quint16((uchar(corpo.at(2 + 2 * i)) << 8)
+                                      | uchar(corpo.at(3 + 2 * i)));
+            auto const it = m_finestra.constFind(s);
+            if (it != m_finestra.constEnd()) {
+                m_sock->writeDatagram(it->pkt, a, p);
+                m_bytesUscita += quint64(it->pkt.size()) + 28;
+                ++rimandati;
+            } else {
+                ++mancanti;
+            }
+        }
+        m_rimandati += quint64(rimandati);
+        if (mancanti > 0) m_troppoTardi += quint64(mancanti);
+    }
+
+    // Dall'altro lato: si tiene il conto di quello che arriva e si chiede
+    // indietro quello che manca. Si aspetta un momento prima di chiedere, perche'
+    // su internet i pacchetti si scambiano d'ordine e un ritardatario non e' un
+    // pacchetto perso.
+    void notaRicevuto(quint16 seq, const QHostAddress& a, quint16 p)
+    {
+        qint64 const ora = QDateTime::currentMSecsSinceEpoch();
+        m_arrivati.insert(seq, ora);
+        if (m_arrivati.size() > 400) {
+            for (auto it = m_arrivati.begin(); it != m_arrivati.end();)
+                it = (ora - it.value() > 4000) ? m_arrivati.erase(it) : ++it;
+        }
+
+        if (m_ultimoRx == 0) { m_ultimoRx = seq; return; }
+        quint16 const atteso = quint16(m_ultimoRx + 1);
+        if (seq == atteso) { m_ultimoRx = seq; return; }
+        if (qint16(seq - m_ultimoRx) <= 0) return;      // ritardatario, non un buco
+
+        // C'e' un salto: si segnano le sequenze che non si sono viste.
+        QList<quint16> mancano;
+        for (quint16 s = atteso; s != seq && mancano.size() < 32; ++s)
+            if (!m_arrivati.contains(s)) mancano.append(s);
+        m_ultimoRx = seq;
+        if (mancano.isEmpty() || !m_sock) return;
+
+        QByteArray corpo;
+        corpo.append(char(dl::CReport));      // riusa lo spazio dei sottotipi
+        corpo.append(char(mancano.size()));
+        for (quint16 s : mancano) {
+            corpo.append(char((s >> 8) & 0xFF));
+            corpo.append(char(s & 0xFF));
+        }
+        m_sock->writeDatagram(dl::pacchetto(dl::TNack, dl::PDigi, 0, 0, seq, 0,
+                                            corpo.constData(), corpo.size()), a, p);
+        m_chiesti += quint64(mancano.size());
     }
 
     // Apre la scheda del rig alla prima richiesta e la chiude quando il telefono
@@ -1011,7 +1135,16 @@ private slots:
                             .arg(kbps, 0, 'f', 1)
                             .arg(kbps * 450.0 / 1000.0, 0, 'f', 0)
                             .arg(m_sent);
-        if (prof != dl::PPcm48) {
+        if (prof == dl::PDigi) {
+            if (m_grezziDigi > 0)
+                testo += QStringLiteral("   compresso al %1% del grezzo")
+                             .arg(double(m_compressiDigi) * 100.0 / double(m_grezziDigi), 0, 'f', 0);
+            if (m_chiesti > 0 || m_rimandati > 0)
+                testo += QStringLiteral("   rimandati %1, chiesti %2")
+                             .arg(m_rimandati).arg(m_chiesti);
+            if (m_troppoTardi > 0)
+                testo += QStringLiteral("   %1 fuori finestra").arg(m_troppoTardi);
+        } else if (prof != dl::PPcm48) {
             testo += QStringLiteral("   Opus %1 kbit/s").arg(m_opusOut.bitrate() / 1000);
             int const n = aggrAttivo();
             testo += (n > 1) ? QStringLiteral("   pacchetti da %1 ms").arg(n * 20)
@@ -1047,6 +1180,17 @@ private:
     void apriCodec()
     {
         quint8 const scelto = quint8(m_profile->currentData().toUInt());
+
+        // I digitali non usano Opus: hanno il loro compressore senza perdite. Si
+        // azzerano i filtri, altrimenti si porterebbero dietro la coda del
+        // profilo precedente.
+        if (scelto == dl::PDigi) {
+            m_opusOut.chiudi(); m_opusIn.chiudi();
+            m_decim.azzera(); m_interp.azzera();
+            m_finestra.clear(); m_arrivati.clear(); m_ultimoRx = 0;
+            m_grezziDigi = m_compressiDigi = 0;
+            return;
+        }
         if (scelto == dl::PPcm48) { m_opusOut.chiudi(); m_opusIn.chiudi(); return; }
 
         // CW: 4 kHz bastano e avanzano per una nota da 700 Hz e per sentire chi
@@ -1244,6 +1388,16 @@ private:
     quint16 m_seqTxAtteso {0};
     int m_perditaVista {0};
     QList<QByteArray> m_daSpedire;   // frame in attesa di partire insieme
+
+    // profilo dei digitali: conversione di frequenza e ritrasmissione
+    dl::Decimatore m_decim;
+    dl::Interpolatore m_interp;
+    struct InSospeso { QByteArray pkt; qint64 quando; };
+    QMap<quint16, InSospeso> m_finestra;   // spediti, a portata di mano per 3 s
+    QMap<quint16, qint64> m_arrivati;      // ricevuti, per accorgersi dei buchi
+    quint16 m_ultimoRx {0};
+    quint64 m_rimandati {0}, m_chiesti {0}, m_troppoTardi {0};
+    quint64 m_grezziDigi {0}, m_compressiDigi {0};
     // Si parte dal presupposto che l'altro capo non sappia leggere i pacchetti
     // raggruppati, e lo si scopre dal suo HELLO: meglio consumare piu' banda che
     // mandare a un client vecchio un formato che non capisce.
@@ -1376,6 +1530,86 @@ int main(int argc, char** argv)
                                   "%4 campioni resi, %5× tempo reale\n")
                        .arg(frame).arg(pacchetti).arg(riletti).arg(campioniResi)
                        .arg(double(secondi) * 1000.0 / double(ms), 0, 'f', 0);
+        }
+
+        // ---- profilo dei digitali: la promessa e' che non si perda un bit ----
+        out << "\n";
+        {
+            dl::Decimatore dec;
+            qint64 grezzi = 0, compressi = 0, byteRete = 0;
+            int blocchi = 0, identici = 0;
+            QElapsedTimer cron; cron.start();
+            for (int i = 0; i + kDigiIngresso <= tot; i += kDigiIngresso) {
+                QVector<qint16> const giu = dec.giu(segnale.constData() + i, kDigiIngresso);
+                if (giu.isEmpty()) continue;
+                QByteArray const blocco = dl::comprimi(giu.constData(), giu.size());
+                QVector<qint16> const torna = dl::decomprimi(blocco);
+                ++blocchi;
+                grezzi += giu.size() * 2;
+                compressi += blocco.size();
+                byteRete += blocco.size() + dl::kHdr + 28;
+                if (torna == giu) ++identici;      // confronto esatto, campione per campione
+            }
+            double const kbps = double(byteRete) * 8.0 / double(secondi) / 1000.0;
+            out << QStringLiteral("%1  %2 kbit/s  %3 MB/ora   %4× meno del PCM\n")
+                       .arg(QStringLiteral("digitali (12 kHz senza perdite)"), -32)
+                       .arg(kbps, 8, 'f', 1).arg(kbps * 0.45, 6, 'f', 0)
+                       .arg(pcmKbps / kbps, 0, 'f', 1);
+            out << QStringLiteral("      %1 blocchi, compressi al %2% del grezzo, "
+                                  "%3× tempo reale\n")
+                       .arg(blocchi)
+                       .arg(double(compressi) * 100.0 / double(qMax<qint64>(1, grezzi)), 0, 'f', 1)
+                       .arg(double(secondi) * 1000.0 / double(qMax<qint64>(1, cron.elapsed())), 0, 'f', 0);
+            out << QStringLiteral("      ricostruiti identici: %1 su %2  -> %3\n")
+                       .arg(identici).arg(blocchi)
+                       .arg(identici == blocchi ? QStringLiteral("SENZA PERDITE, confermato")
+                                                : QStringLiteral("ATTENZIONE: NON è senza perdite"));
+        }
+
+        // Il compressore va provato anche su segnali che in aria capitano: il
+        // silenzio, la saturazione e il rumore puro sono i casi in cui un
+        // predittore si comporta peggio, ed e' li' che un errore si nasconde.
+        {
+            out << "\n  prove del compressore su casi difficili:\n";
+            struct Caso { const char* nome; int tipo; };
+            Caso const casi[] = { {"silenzio", 0}, {"rumore a tutto volume", 1},
+                                  {"saturazione ai due estremi", 2},
+                                  {"tono puro", 3}, {"gradini bruschi", 4} };
+            quint32 r = 999;
+            bool tuttoBene = true;
+            for (Caso const& c : casi) {
+                QVector<qint16> blocco(dl::kDigiRate / 25);
+                for (int i = 0; i < blocco.size(); ++i) {
+                    r = r * 1103515245u + 12345u;
+                    switch (c.tipo) {
+                    case 0: blocco[i] = 0; break;
+                    case 1: blocco[i] = qint16(int((r >> 16) & 0xFFFF) - 32768); break;
+                    case 2: blocco[i] = (i % 2) ? 32767 : -32768; break;
+                    case 3: blocco[i] = qint16(30000 * std::sin(2 * M_PI * 1500.0 * i / dl::kDigiRate)); break;
+                    default: blocco[i] = (i / 40 % 2) ? 20000 : -20000; break;
+                    }
+                }
+                QByteArray const c1 = dl::comprimi(blocco.constData(), blocco.size());
+                QVector<qint16> const c2 = dl::decomprimi(c1);
+                bool const uguale = (c2 == blocco);
+                if (!uguale) tuttoBene = false;
+                out << QStringLiteral("    %1  %2 -> %3 byte (%4%)  %5\n")
+                           .arg(QString::fromLatin1(c.nome), -28)
+                           .arg(blocco.size() * 2).arg(c1.size())
+                           .arg(double(c1.size()) * 100.0 / double(blocco.size() * 2), 0, 'f', 0)
+                           .arg(uguale ? QStringLiteral("identico") : QStringLiteral("DIVERSO!"));
+            }
+            // Un blocco tagliato a metà non deve produrre campioni inventati:
+            // meglio niente che dati falsi consegnati a un decodificatore.
+            QVector<qint16> pieno(480, 1234);
+            QByteArray tagliato = dl::comprimi(pieno.constData(), pieno.size());
+            tagliato.truncate(tagliato.size() / 2);
+            bool const scartato = dl::decomprimi(tagliato).isEmpty();
+            out << QStringLiteral("    %1  %2\n").arg(QStringLiteral("blocco tagliato a metà"), -28)
+                       .arg(scartato ? QStringLiteral("scartato, come deve")
+                                     : QStringLiteral("ACCETTATO: sbagliato"));
+            if (!scartato) tuttoBene = false;
+            out << (tuttoBene ? "  tutte le prove passate\n" : "  QUALCOSA NON TORNA\n");
         }
 
         out << "\nNota: non si riporta un rapporto segnale/rumore fra originale e\n"
