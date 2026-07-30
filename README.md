@@ -168,6 +168,14 @@ La **v1 non è più accettata**: bastava indovinare il nome di una stanza per
 entrare e trasmettere. I client vecchi ricevono un rifiuto che lo spiega e vanno
 aggiornati. Dettagli in [`server/LEGGIMI.md`](server/LEGGIMI.md).
 
+### Dove sta andando: v3
+
+I 786 kbit/s del PCM grezzo sono il limite di oggi. La v3 negozia un **profilo
+per modo operativo** invece di mandare sempre tutto: fonia con Opus a ~28 kbit/s
+(28× in meno), CW a 15, digitali compressi **senza perdite** a ~130, e un profilo
+d'emergenza a 700 bit/s che passa dentro un canale radio HF quando internet non
+c'è. Progetto completo, con le misure per smentirlo: **[`PROTOCOLLO.md`](PROTOCOLLO.md)**.
+
 ## Licenza
 
 MIT — (c) 2026 IU8LMC. Audio: [miniaudio](https://miniaud.io) (public domain/MIT-0).
