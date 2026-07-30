@@ -215,6 +215,15 @@ class Relay:
         elif payload.startswith(tok.PREFIX + "."):
             tipo, token_txt = "op", payload
         else:
+            # Si scrive nel registro cosa ha mandato, troncato: quando un
+            # programma che non conosciamo non riesce a entrare, sapere cosa ha
+            # scritto nel pacchetto e' l'unico modo per capire quale campo della
+            # sua interfaccia finisce qui dentro. Solo i primi caratteri, perche'
+            # in quel campo puo' esserci una chiave e i log li legge chi
+            # amministra la macchina.
+            mostra = payload[:24].replace("\n", " ") if payload else "(vuoto)"
+            print(f"  ? {addr[0]}:{addr[1]} si presenta con «{mostra}»"
+                  f"{'…' if len(payload) > 24 else ''} ({len(payload)} caratteri)")
             self.rifiuta(addr, "serve una chiave di accesso: aggiorna il programma, "
                                "oppure incolla la chiave di stazione al posto della stanza")
             return
