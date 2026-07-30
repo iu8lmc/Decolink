@@ -629,8 +629,12 @@ private slots:
         saveSettings();
 
         // Se il collegamento era gia' aperto, il token nuovo entra in vigore col
-        // prossimo keepalive senza interrompere l'audio.
-        if (m_running) sendRegister();
+        // prossimo keepalive senza interrompere l'audio. Il keepalive va
+        // riacceso: puo' essere stato fermato proprio perche' il token mancava.
+        if (m_running) {
+            m_keepAlive.start();
+            sendRegister();
+        }
         else if (m_autoStart) { m_autoStart = false; QTimer::singleShot(200, this, [this]{ start(); }); }
     }
 
@@ -670,6 +674,22 @@ private slots:
     {
         if (!m_running || !m_sock) return;
         if (m_mode->currentIndex() != ModeRelay) return;
+
+        // Senza token non si bussa. Prima si mandava comunque "gw " seguito dal
+        // vuoto: il relay rispondeva "chiave di accesso mancante", il client
+        // riprovava ogni cinque secondi e restava in un giro da cui non usciva
+        // mai, mentre l'interfaccia diceva soltanto che era in esecuzione.
+        if (m_token.isEmpty()) {
+            m_keepAlive.stop();
+            if (!m_password->text().isEmpty() && !m_authPending) {
+                setStatus(QStringLiteral("credenziali scadute: rifaccio l'accesso"));
+                login(m_tokenStation);
+            } else {
+                setStatus(QStringLiteral("manca l'accesso: premi Accedi, poi Avvia"));
+                if (m_running) stop();
+            }
+            return;
+        }
         // "gw": questo programma e' il lato radio della stazione. Il relay usa
         // questa parola per sapere a chi mandare l'audio da trasmettere.
         QByteArray const corpo = (QStringLiteral("gw ") + m_token).toUtf8();
@@ -781,8 +801,14 @@ private slots:
             // continuare a bussare non servirebbe a niente.
             if (flags == kFlagDenied) {
                 QString const motivo = QString::fromUtf8(dg.mid(kHdrSize));
-                if (motivo.contains(QStringLiteral("scaduto")) && !m_password->text().isEmpty()) {
-                    setStatus(QStringLiteral("token scaduto: lo rinnovo"));
+                // Qualunque rifiuto che riguardi la credenziale si prova a
+                // risolvere rifacendo l'accesso, se la password e' a portata:
+                // scaduta, mancante o non piu' buona, la cura e' la stessa.
+                bool const eCredenziale = motivo.contains(QStringLiteral("scaduto"))
+                                          || motivo.contains(QStringLiteral("chiave"))
+                                          || motivo.contains(QStringLiteral("registrat"));
+                if (eCredenziale && !m_password->text().isEmpty() && !m_authPending) {
+                    setStatus(QStringLiteral("credenziali da rinnovare: rifaccio l'accesso"));
                     login(m_tokenStation);
                 } else {
                     m_token.clear();
