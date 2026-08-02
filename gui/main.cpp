@@ -25,6 +25,7 @@
 #include <QDateTime>
 #include <QEventLoop>
 #include <QFormLayout>
+#include <QFrame>
 #include <QGroupBox>
 #include <QHostInfo>
 #include <QIcon>
@@ -108,6 +109,75 @@ QByteArray hfgwPacket(quint8 flags, quint32 seq, const char* payload, int len,
 }
 
 enum Mode { ModeLan = 0, ModeRelay = 1, ModeListen = 2 };
+
+// Aspetto della finestra: gli stessi colori del sito e dell'icona — fondo blu
+// notte, ciano come accento, verde acqua per le conferme. Un programma e il suo
+// sito che si somigliano si riconoscono come la stessa cosa.
+QString foglioStile()
+{
+    return QStringLiteral(R"(
+QWidget { background:#0d1622; color:#e8edf5;
+          font-family:"Segoe UI",system-ui,sans-serif; font-size:13px }
+QLabel#logo { font-size:16px; font-weight:800; letter-spacing:2px; color:#00e5ff }
+QLabel#titolo { font-size:11px; font-weight:700; letter-spacing:1.2px; color:#5d7ba3;
+                padding-bottom:2px }
+QLabel#minuscolo { font-size:10px; color:#5d7ba3; letter-spacing:.5px }
+QLabel#identita { color:#8fb3d9; font-size:12px }
+QLabel#stato { color:#e8edf5; font-size:12px; padding:7px 10px;
+               background:rgba(22,33,62,.55); border:1px solid #243b63; border-radius:7px }
+QLabel#numeri { color:#7d98bd; font-size:11px; padding:0 2px }
+QFrame#divisorio { background:#1d2c56; border:0; max-width:1px; min-width:1px }
+
+QLineEdit, QComboBox, QSpinBox {
+    background:#0b1018; border:1px solid #243b63; border-radius:6px;
+    padding:6px 9px; min-height:17px; selection-background-color:#00e5ff;
+    selection-color:#06131c }
+QLineEdit:focus, QComboBox:focus, QSpinBox:focus { border-color:#00e5ff }
+QLineEdit:disabled, QComboBox:disabled, QSpinBox:disabled { color:#4a5a72; background:#0a1017 }
+QComboBox::drop-down { border:0; width:18px }
+QComboBox::down-arrow { image:none; border-left:4px solid transparent;
+    border-right:4px solid transparent; border-top:5px solid #5d7ba3; margin-right:7px }
+
+/* Le frecce dei campi numerici: senza queste righe Qt usa quelle di sistema, che
+   sul tema scuro finiscono sopra al numero e lo rendono illeggibile. */
+QSpinBox { padding-right:16px }
+QSpinBox::up-button, QSpinBox::down-button {
+    subcontrol-origin:border; width:14px; border:0; background:transparent }
+QSpinBox::up-button { subcontrol-position:top right; margin:2px 2px 0 0 }
+QSpinBox::down-button { subcontrol-position:bottom right; margin:0 2px 2px 0 }
+QSpinBox::up-arrow { image:none; width:0; height:0; border-left:3px solid transparent;
+    border-right:3px solid transparent; border-bottom:4px solid #5d7ba3 }
+QSpinBox::down-arrow { image:none; width:0; height:0; border-left:3px solid transparent;
+    border-right:3px solid transparent; border-top:4px solid #5d7ba3 }
+QSpinBox::up-arrow:hover, QSpinBox::down-arrow:hover { border-bottom-color:#00e5ff;
+    border-top-color:#00e5ff }
+QComboBox QAbstractItemView { background:#0b1018; border:1px solid #243b63;
+    selection-background-color:#16213e; outline:none; padding:3px }
+
+QPushButton { background:#16213e; border:1px solid #243b63; border-radius:7px;
+              padding:7px 15px; color:#cfe0f0 }
+QPushButton:hover { border-color:#00e5ff; color:#e8edf5 }
+QPushButton:pressed { background:#1d2c56 }
+QPushButton#principale { background:qlineargradient(x1:0,y1:0,x2:1,y2:0,
+                            stop:0 #00e5ff, stop:1 #36d8ad);
+                         color:#06131c; font-weight:700; font-size:14px; border:0 }
+QPushButton#principale:hover { background:qlineargradient(x1:0,y1:0,x2:1,y2:0,
+                            stop:0 #3aecff, stop:1 #55e6c0) }
+QPushButton#piatto { background:transparent; border:0; color:#5d7ba3; text-align:left;
+                     padding:3px 2px; font-size:12px }
+QPushButton#piatto:hover { color:#00e5ff }
+
+QCheckBox { color:#8fb3d9; spacing:7px }
+QCheckBox::indicator { width:15px; height:15px; border:1px solid #243b63;
+                       border-radius:4px; background:#0b1018 }
+QCheckBox::indicator:checked { background:#00e5ff; border-color:#00e5ff }
+
+QProgressBar { background:#0b1018; border:1px solid #243b63; border-radius:4px }
+QProgressBar::chunk { border-radius:3px;
+    background:qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 #36d8ad, stop:1 #00e5ff) }
+QToolTip { background:#16213e; color:#e8edf5; border:1px solid #00e5ff; padding:5px }
+)");
+}
 
 } // namespace
 
@@ -356,9 +426,14 @@ public:
             m_device->addItem(d.description());
 
         m_mode = new QComboBox;
-        m_mode->addItem(QStringLiteral("LAN diretta — indirizzo del telefono"));
-        m_mode->addItem(QStringLiteral("Relay + stanza — funziona ovunque"));
-        m_mode->addItem(QStringLiteral("Il telefono chiama casa — DynDNS/porta inoltrata"));
+        m_mode->addItem(QStringLiteral("LAN diretta"));
+        m_mode->addItem(QStringLiteral("Relay + stazione"));
+        m_mode->addItem(QStringLiteral("Il telefono chiama casa"));
+        m_mode->setToolTip(QStringLiteral(
+            "LAN diretta — il telefono è sulla stessa rete: gli si manda l'audio all'indirizzo\n"
+            "Relay + stazione — funziona ovunque, anche su dati mobili: PC e telefono\n"
+            "   escono entrambi verso il relay, quindi non c'è nessun router da configurare\n"
+            "Il telefono chiama casa — porta inoltrata sul router e nome DynDNS"));
 
         m_host = new QLineEdit;
         m_host->setPlaceholderText(QStringLiteral("IP del telefono, oppure host del relay"));
@@ -385,48 +460,108 @@ public:
         // Funziona solo se chi riceve legge il campo della frequenza invece di
         // dare per scontati i 48 kHz. Se lo ignora, l'audio si sente accelerato:
         // se ne accorge subito e si torna indietro da qui.
+        // Le voci sono corte e i dettagli stanno nel suggerimento: descrizioni
+        // lunghe dentro una tendina allargano la finestra di duecento pixel per
+        // un testo che si legge una volta sola.
         m_srate = new QComboBox;
-        m_srate->addItem(QStringLiteral("48 kHz — 808 kbit/s (sicuro, come sempre)"), 48000);
-        m_srate->addItem(QStringLiteral("24 kHz — 424 kbit/s, metà banda"), 24000);
-        m_srate->addItem(QStringLiteral("12 kHz — 232 kbit/s, un quarto"), 12000);
+        m_srate->addItem(QStringLiteral("48 kHz"), 48000);
+        m_srate->addItem(QStringLiteral("24 kHz"), 24000);
+        m_srate->addItem(QStringLiteral("12 kHz"), 12000);
+        m_srate->setToolTip(QStringLiteral(
+            "Quanti campioni al secondo mandare.\n"
+            "48 kHz — 808 kbit/s, 364 MB l'ora: sicuro con qualunque programma\n"
+            "24 kHz — 424 kbit/s, 191 MB l'ora\n"
+            "12 kHz — 232 kbit/s, 104 MB l'ora: basta e avanza per un SSB,\n"
+            "che di banda ne occupa 2,7 kHz.\n\n"
+            "Se il telefono lo sente accelerato, non legge la frequenza\n"
+            "dichiarata: torna a 48 kHz."));
 
         m_profile = new QComboBox;
-        m_profile->addItem(QStringLiteral("PCM — compatibile con tutti"), dl::PPcm48);
-        m_profile->addItem(QStringLiteral("Voce — Opus, 32 kbit/s (serve un client aggiornato)"), dl::PVoce);
-        m_profile->addItem(QStringLiteral("CW — Opus banda stretta, 20 kbit/s"), dl::PCw);
-        m_profile->addItem(QStringLiteral("Digitali — senza perdite, 146 kbit/s"), dl::PDigi);
-        m_profile->addItem(QStringLiteral("CW a tasto — solo il ritmo, 2,4 kbit/s"), dl::PCwKey);
+        m_profile->addItem(QStringLiteral("PCM"), dl::PPcm48);
+        m_profile->addItem(QStringLiteral("Voce (Opus)"), dl::PVoce);
+        m_profile->addItem(QStringLiteral("CW (Opus)"), dl::PCw);
+        m_profile->addItem(QStringLiteral("Digitali senza perdite"), dl::PDigi);
+        m_profile->addItem(QStringLiteral("CW a tasto"), dl::PCwKey);
+        m_profile->setToolTip(QStringLiteral(
+            "PCM — compatibile con tutti, nessuna compressione\n"
+            "Voce — Opus a 32 kbit/s: serve un programma aggiornato dall'altra parte\n"
+            "CW — Opus a banda stretta, 20 kbit/s\n"
+            "Digitali — compresso senza perdere un bit, 146 kbit/s\n"
+            "CW a tasto — solo il ritmo del tasto, 2,4 kbit/s: si perde\n"
+            "tutto il contesto (QSB, QRM, chi chiama fuori nota)"));
 
         // Quanti frame per pacchetto. Piu' se ne raggruppano, meno volte si paga
         // l'involucro IP/UDP, ma piu' latenza si aggiunge.
         m_aggr = new QComboBox;
-        m_aggr->addItem(QStringLiteral("20 ms — latenza minima"), 1);
-        m_aggr->addItem(QStringLiteral("40 ms — 18% di banda in meno (consigliato)"), 2);
-        m_aggr->addItem(QStringLiteral("60 ms — 24% in meno, per reti a consumo"), 3);
+        m_aggr->addItem(QStringLiteral("20 ms"), 1);
+        m_aggr->addItem(QStringLiteral("40 ms"), 2);
+        m_aggr->addItem(QStringLiteral("60 ms"), 3);
         m_aggr->setCurrentIndex(1);
+        m_aggr->setToolTip(QStringLiteral(
+            "Quanti frame mettere in un pacchetto: meno pacchetti, meno\n"
+            "intestazioni da pagare, ma un po' più di ritardo.\n"
+            "20 ms — latenza minima\n"
+            "40 ms — 18% di banda in meno, ritardo impercettibile\n"
+            "60 ms — 24% in meno, per reti a consumo"));
 
+        // Colonna di sinistra: il collegamento. Sono le cose che si guardano
+        // ogni volta.
         auto* form = new QFormLayout;
-        form->addRow(QStringLiteral("Audio della radio"), m_device);
+        form->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        form->setHorizontalSpacing(10);
+        form->setVerticalSpacing(7);
+        form->addRow(QStringLiteral("Audio radio"), m_device);
         form->addRow(QStringLiteral("Modalità"), m_mode);
         form->addRow(QStringLiteral("Host"), m_host);
-        form->addRow(QStringLiteral("Porta"), m_port);
-        form->addRow(QStringLiteral("Stazione"), m_station);
-        form->addRow(QStringLiteral("Profilo audio"), m_profile);
-        form->addRow(QStringLiteral("Campionamento"), m_srate);
-        form->addRow(QStringLiteral("Pacchetti da"), m_aggr);
+        // Porta e stazione stanno sulla stessa riga: la porta e' un numero
+        // corto e da sola sprecava un'intera riga di altezza.
+        auto* rigaPorta = new QHBoxLayout;
+        rigaPorta->setSpacing(8);
+        m_port->setFixedWidth(88);          // cinque cifre e la freccia, non di piu'
+        rigaPorta->addWidget(m_port);
+        auto* etSta = new QLabel(QStringLiteral("stazione"));
+        etSta->setObjectName(QStringLiteral("minuscolo"));
+        rigaPorta->addWidget(etSta);
+        rigaPorta->addWidget(m_station, 1);
+        form->addRow(QStringLiteral("Porta"), rigaPorta);
+
+        // Le impostazioni dell'audio si toccano una volta e poi si dimenticano:
+        // stanno dietro un pulsante, e la finestra parte corta.
+        auto* avanForm = new QFormLayout;
+        avanForm->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        avanForm->setHorizontalSpacing(10);
+        avanForm->setVerticalSpacing(7);
+        avanForm->addRow(QStringLiteral("Profilo"), m_profile);
+        avanForm->addRow(QStringLiteral("Campionamento"), m_srate);
+        avanForm->addRow(QStringLiteral("Pacchetti da"), m_aggr);
+        m_avanzate = new QWidget;
+        m_avanzate->setLayout(avanForm);
+        m_avanzate->setVisible(false);
+
+        m_mostraAvan = new QPushButton(QStringLiteral("▸  Audio avanzato"));
+        m_mostraAvan->setCheckable(true);
+        m_mostraAvan->setObjectName(QStringLiteral("piatto"));
+        connect(m_mostraAvan, &QPushButton::toggled, this, [this](bool on) {
+            m_avanzate->setVisible(on);
+            m_mostraAvan->setText(on ? QStringLiteral("▾  Audio avanzato")
+                                     : QStringLiteral("▸  Audio avanzato"));
+            // La finestra si stringe da sola quando si richiude: senza questo
+            // resterebbe alta come quando era aperta.
+            QTimer::singleShot(0, this, [this] { resize(width(), sizeHint().height()); });
+        });
 
         m_start = new QPushButton(QStringLiteral("Avvia"));
-        m_start->setMinimumHeight(34);
+        m_start->setObjectName(QStringLiteral("principale"));
+        m_start->setMinimumHeight(38);
+        m_start->setMinimumWidth(120);
         m_level = new QProgressBar; m_level->setRange(0, 100); m_level->setTextVisible(false);
-        m_level->setFixedHeight(14);
+        m_level->setFixedHeight(8);
         m_status = new QLabel(QStringLiteral("fermo"));
+        m_status->setObjectName(QStringLiteral("stato"));
+        m_status->setWordWrap(true);
         m_stats  = new QLabel(QStringLiteral("—"));
-        m_stats->setStyleSheet(QStringLiteral("color:#666"));
-
-        auto* row = new QHBoxLayout;
-        row->addWidget(m_start);
-        row->addWidget(new QLabel(QStringLiteral("livello")));
-        row->addWidget(m_level, 1);
+        m_stats->setObjectName(QStringLiteral("numeri"));
+        m_stats->setWordWrap(true);
 
         // ---- CAT: controllo del rig sulla seriale, servito al telefono ----
         m_catPort = new QComboBox;
@@ -445,15 +580,21 @@ public:
             m_rigOut->addItem(d.description());
 
         auto* catForm = new QFormLayout;
-        catForm->addRow(QStringLiteral("Audio verso il rig (TX)"), m_rigOut);
-        catForm->addRow(QStringLiteral("Porta del rig"), m_catPort);
-        catForm->addRow(QStringLiteral("Velocità"), m_catBaud);
-        catForm->addRow(QStringLiteral("Porta TCP (LAN)"), m_catTcpPort);
-        auto* catBox = new QGroupBox(QStringLiteral("CAT — controllo della radio"));
-        auto* catLay = new QVBoxLayout(catBox);
-        catLay->addLayout(catForm);
-        catLay->addWidget(m_catOn);
-        catLay->addWidget(m_catState);
+        catForm->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        catForm->setHorizontalSpacing(10);
+        catForm->setVerticalSpacing(7);
+        catForm->addRow(QStringLiteral("Audio al rig"), m_rigOut);
+        catForm->addRow(QStringLiteral("Porta rig"), m_catPort);
+        // Velocita' e porta TCP sono due numeri corti: stanno insieme.
+        auto* rigaBaud = new QHBoxLayout;
+        rigaBaud->setSpacing(8);
+        rigaBaud->addWidget(m_catBaud, 1);
+        auto* etTcp = new QLabel(QStringLiteral("TCP"));
+        etTcp->setObjectName(QStringLiteral("minuscolo"));
+        rigaBaud->addWidget(etTcp);
+        m_catTcpPort->setFixedWidth(78);
+        rigaBaud->addWidget(m_catTcpPort);
+        catForm->addRow(QStringLiteral("Velocità"), rigaBaud);
 
         // ---- accesso: chi sei, e che cosa ti lasciano fare ----
         m_authHost = new QLineEdit;
@@ -463,35 +604,108 @@ public:
         m_password = new QLineEdit;
         m_password->setEchoMode(QLineEdit::Password);
         m_password->setPlaceholderText(QStringLiteral("password"));
-        m_remember = new QCheckBox(QStringLiteral("Ricorda la password (salvata in chiaro fra le impostazioni)"));
+        m_remember = new QCheckBox(QStringLiteral("ricorda la password"));
+        m_remember->setToolTip(QStringLiteral("Viene salvata in chiaro fra le impostazioni di "
+                                              "Windows: conviene solo su un computer di cui ti fidi."));
         m_login = new QPushButton(QStringLiteral("Accedi"));
         m_authState = new QLabel(QStringLiteral("non collegato"));
+        m_authState->setObjectName(QStringLiteral("identita"));
         m_authState->setWordWrap(true);
-        m_authState->setStyleSheet(QStringLiteral("color:#666"));
 
+        // Accesso su due righe invece di sei: email e password affiancate, il
+        // server sopra. Sono tre campi che si compilano una volta.
         auto* authForm = new QFormLayout;
-        authForm->addRow(QStringLiteral("Server di accesso"), m_authHost);
-        authForm->addRow(QStringLiteral("Email"), m_email);
-        authForm->addRow(QStringLiteral("Password"), m_password);
-        auto* authBox = new QGroupBox(QStringLiteral("Accesso"));
-        auto* authLay = new QVBoxLayout(authBox);
-        authLay->addLayout(authForm);
-        authLay->addWidget(m_remember);
-        authLay->addWidget(m_login);
-        authLay->addWidget(m_authState);
+        authForm->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        authForm->setHorizontalSpacing(10);
+        authForm->setVerticalSpacing(7);
+        authForm->addRow(QStringLiteral("Server"), m_authHost);
+        auto* rigaCred = new QHBoxLayout;
+        rigaCred->setSpacing(8);
+        rigaCred->addWidget(m_email, 3);
+        rigaCred->addWidget(m_password, 2);
+        rigaCred->addWidget(m_login);
+        authForm->addRow(QStringLiteral("Accesso"), rigaCred);
+        auto* rigaRic = new QHBoxLayout;
+        rigaRic->addWidget(m_remember);
+        rigaRic->addStretch(1);
+        rigaRic->addWidget(m_authState, 2);
+        authForm->addRow(QString(), rigaRic);
 
-        auto* box = new QGroupBox(QStringLiteral("Stato"));
-        auto* bl = new QVBoxLayout(box);
-        bl->addWidget(m_status);
-        bl->addWidget(m_stats);
+        // ---- montaggio: due colonne invece di una fila unica ----
+        //
+        // Prima erano ventidue righe in colonna, e ogni cosa aggiunta allungava
+        // la finestra. Affiancando collegamento e radio l'altezza si dimezza, e
+        // le impostazioni che si toccano una volta sola stanno chiuse.
+
+        auto* intestazione = new QLabel(QStringLiteral("DECOLINK"));
+        intestazione->setObjectName(QStringLiteral("logo"));
+
+        auto* barra = new QHBoxLayout;
+        barra->addWidget(intestazione);
+        barra->addStretch(1);
+
+        auto* colSx = new QVBoxLayout;
+        colSx->setSpacing(6);
+        auto* tSx = new QLabel(QStringLiteral("COLLEGAMENTO"));
+        tSx->setObjectName(QStringLiteral("titolo"));
+        colSx->addWidget(tSx);
+        colSx->addLayout(form);
+        colSx->addStretch(1);
+
+        auto* colDx = new QVBoxLayout;
+        colDx->setSpacing(6);
+        auto* tDx = new QLabel(QStringLiteral("RADIO E CAT"));
+        tDx->setObjectName(QStringLiteral("titolo"));
+        colDx->addWidget(tDx);
+        colDx->addLayout(catForm);
+        colDx->addWidget(m_catOn);
+        colDx->addWidget(m_catState);
+        colDx->addStretch(1);
+
+        auto* colonne = new QHBoxLayout;
+        colonne->setSpacing(22);
+        colonne->addLayout(colSx, 1);
+        auto* riga = new QFrame;
+        riga->setFrameShape(QFrame::VLine);
+        riga->setObjectName(QStringLiteral("divisorio"));
+        colonne->addWidget(riga);
+        colonne->addLayout(colDx, 1);
+
+        // Barra di comando: il pulsante grande, il livello, e sotto lo stato.
+        auto* comandi = new QHBoxLayout;
+        comandi->setSpacing(12);
+        comandi->addWidget(m_start);
+        auto* livCol = new QVBoxLayout;
+        livCol->setSpacing(3);
+        auto* etLiv = new QLabel(QStringLiteral("livello audio"));
+        etLiv->setObjectName(QStringLiteral("minuscolo"));
+        livCol->addWidget(etLiv);
+        livCol->addWidget(m_level);
+        comandi->addLayout(livCol, 1);
 
         auto* lay = new QVBoxLayout(this);
-        lay->addWidget(authBox);
-        lay->addLayout(form);
-        lay->addLayout(row);
-        lay->addWidget(catBox);
-        lay->addWidget(box);
-        setMinimumWidth(520);
+        lay->setContentsMargins(18, 14, 18, 14);
+        lay->setSpacing(10);
+        lay->addLayout(barra);
+        lay->addLayout(authForm);
+        lay->addLayout(colonne);
+        lay->addWidget(m_mostraAvan);
+        lay->addWidget(m_avanzate);
+        lay->addLayout(comandi);
+        lay->addWidget(m_status);
+        lay->addWidget(m_stats);
+
+        // Le tendine non devono dettare la larghezza della finestra: si adattano
+        // al posto che c'e', e il testo lungo lo si legge nel suggerimento.
+        for (QComboBox* c : { m_device, m_mode, m_station, m_profile, m_aggr, m_srate,
+                              m_catPort, m_catBaud, m_rigOut }) {
+            c->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+            c->setMinimumContentsLength(12);
+            c->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        }
+        setStyleSheet(foglioStile());
+        setMinimumWidth(600);
+        resize(700, sizeHint().height());
 
         connect(m_start, &QPushButton::clicked, this, [this]{ m_running ? stop() : start(); });
         connect(m_mode, &QComboBox::currentIndexChanged, this, &Client::syncFields);
@@ -1630,6 +1844,8 @@ private:
     }
 
     QComboBox *m_device, *m_mode, *m_station, *m_profile, *m_aggr, *m_srate;
+    QWidget* m_avanzate;          // le impostazioni audio, chiuse di default
+    QPushButton* m_mostraAvan;
     dl::Decimatore m_pcmDecim;      // riduce il PCM alla frequenza scelta
     dl::Interpolatore m_pcmInterp;  // e riporta a 48 kHz quello che arriva
     QLineEdit* m_host;
