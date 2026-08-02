@@ -238,8 +238,50 @@ public:
             QString const r = query(cmd.mid(2).trimmed(), QString());
             return r.isEmpty() ? QStringLiteral("RPRT -1\n") : r + "\n";
         }
-        if (cmd.startsWith(QLatin1String("M "))) return QStringLiteral("RPRT 0\n");   // modo: lo imposta l'operatore
+        // Imposta il modo. Prima rispondeva "eseguito" senza fare niente, e chi
+        // clicca una stazione sul cluster si ritrovava sulla frequenza giusta
+        // con il modo sbagliato — senza che nessuno segnalasse l'errore, perche'
+        // la risposta diceva che era andato tutto bene.
+        if (cmd.startsWith(QLatin1String("M "))) {
+            QString const modo = cmd.mid(2).trimmed().section(QLatin1Char(' '), 0, 0).toUpper();
+            QChar const codice = codiceModo(modo);
+            if (codice.isNull()) return QStringLiteral("RPRT -1\n");   // meglio dirlo
+            send(QStringLiteral("MD0%1;").arg(codice));
+            // La larghezza del filtro, se indicata, si lascia al rig: cambiarla
+            // via CAT su un Yaesu vuol dire toccare i menu, e un click su uno
+            // spot non deve riconfigurare la stazione di chi ascolta.
+            return QStringLiteral("RPRT 0\n");
+        }
         return QStringLiteral("RPRT 0\n");
+    }
+
+    // Dal nome del modo al codice del rig. E' la tabella di readMode() letta al
+    // contrario, con i nomi che usano rigctl e i programmi che ci parlano:
+    // cliccando una stazione sul cluster arriva "M USB 2400" o "M CW 500", e
+    // deve finire sulla radio come modo giusto, non come risposta di cortesia.
+    static QChar codiceModo(const QString& m)
+    {
+        if (m == QLatin1String("LSB"))    return QLatin1Char('1');
+        if (m == QLatin1String("USB"))    return QLatin1Char('2');
+        if (m == QLatin1String("CW"))     return QLatin1Char('3');
+        if (m == QLatin1String("FM"))     return QLatin1Char('4');
+        if (m == QLatin1String("AM"))     return QLatin1Char('5');
+        if (m == QLatin1String("RTTY"))   return QLatin1Char('6');
+        if (m == QLatin1String("CWR") || m == QLatin1String("CW-R"))
+            return QLatin1Char('7');
+        if (m == QLatin1String("PKTLSB") || m == QLatin1String("DATA-L")
+            || m == QLatin1String("DIGL"))
+            return QLatin1Char('8');
+        if (m == QLatin1String("RTTYR") || m == QLatin1String("RTTY-R"))
+            return QLatin1Char('9');
+        if (m == QLatin1String("PKTFM"))  return QLatin1Char('A');
+        if (m == QLatin1String("FMN"))    return QLatin1Char('B');
+        if (m == QLatin1String("PKTUSB") || m == QLatin1String("DATA-U")
+            || m == QLatin1String("DIGU"))
+            return QLatin1Char('C');
+        if (m == QLatin1String("AMN"))    return QLatin1Char('D');
+        if (m == QLatin1String("C4FM"))   return QLatin1Char('E');
+        return QChar();      // sconosciuto: meglio un errore che il modo sbagliato
     }
 
     qint64 readFreq()
