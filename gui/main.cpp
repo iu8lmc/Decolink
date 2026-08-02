@@ -117,7 +117,7 @@ QString foglioStile()
 {
     return QStringLiteral(R"(
 QWidget { background:#0d1622; color:#e8edf5;
-          font-family:"Segoe UI",system-ui,sans-serif; font-size:13px }
+          font-family:"Helvetica Neue"; font-size:13px }
 QLabel#logo { font-size:16px; font-weight:800; letter-spacing:2px; color:#00e5ff }
 QLabel#titolo { font-size:11px; font-weight:700; letter-spacing:1.2px; color:#5d7ba3;
                 padding-bottom:2px }
@@ -240,15 +240,19 @@ class CatRig : public QObject
 public:
     explicit CatRig(QObject* parent = nullptr) : QObject(parent) {}
 
-    bool open(const QString& portName, int baud)
+    bool open(const QString& portName, int baud, QSerialPort::DataBits dataBits,
+              QSerialPort::Parity parity, QSerialPort::StopBits stopBits,
+              QSerialPort::FlowControl flowControl, bool icom = false, int civAddress = 0x94)
     {
         close();
         m_port = new QSerialPort(portName, this);
         m_port->setBaudRate(baud);
-        m_port->setDataBits(QSerialPort::Data8);
-        m_port->setParity(QSerialPort::NoParity);
-        m_port->setStopBits(QSerialPort::OneStop);
-        m_port->setFlowControl(QSerialPort::NoFlowControl);
+        m_port->setDataBits(dataBits);
+        m_port->setParity(parity);
+        m_port->setStopBits(stopBits);
+        m_port->setFlowControl(flowControl);
+        m_icom = icom;
+        m_civAddress = quint8(civAddress & 0xff);
         if (!m_port->open(QIODevice::ReadWrite)) {
             m_error = m_port->errorString();
             m_port->deleteLater(); m_port = nullptr;
@@ -285,16 +289,18 @@ public:
             bool ok = false;
             qint64 const hz = cmd.mid(2).trimmed().toLongLong(&ok);
             if (!ok || hz <= 0) return QStringLiteral("RPRT -1\n");
-            send(QStringLiteral("FA%1;").arg(hz, 9, 10, QChar('0')));
+            setFrequency(hz);
             return QStringLiteral("RPRT 0\n");
         }
         if (cmd.startsWith(QLatin1String("T "))) {
             bool const on = cmd.mid(2).trimmed().toInt() != 0;
-            send(on ? QStringLiteral("TX1;") : QStringLiteral("TX0;"));
+            setPtt(on);
             return QStringLiteral("RPRT 0\n");
         }
         if (cmd == QLatin1String("t")) {
-            QString const r = query(QStringLiteral("TX;"), QStringLiteral("TX"));
+            QString const r = m_icom ? civQuery(QByteArray(1, char(0x1c)) + QByteArray(1, char(0)))
+                                     : query(QStringLiteral("TX;"), QStringLiteral("TX"));
+            if (m_icom) return (r.size() >= 3 && quint8(r.at(2).toLatin1()) != 0) ? QStringLiteral("1\n") : QStringLiteral("0\n");
             return (r.size() >= 3 && r.at(2) != QLatin1Char('0')) ? QStringLiteral("1\n") : QStringLiteral("0\n");
         }
         // Comandi Yaesu grezzi, come il "w"/"W" di rigctl: servono per quello che
@@ -316,7 +322,7 @@ public:
             QString const modo = cmd.mid(2).trimmed().section(QLatin1Char(' '), 0, 0).toUpper();
             QChar const codice = codiceModo(modo);
             if (codice.isNull()) return QStringLiteral("RPRT -1\n");   // meglio dirlo
-            send(QStringLiteral("MD0%1;").arg(codice));
+            setMode(modo);
             // La larghezza del filtro, se indicata, si lascia al rig: cambiarla
             // via CAT su un Yaesu vuol dire toccare i menu, e un click su uno
             // spot non deve riconfigurare la stazione di chi ascolta.
@@ -356,6 +362,17 @@ public:
 
     qint64 readFreq()
     {
+        if (m_icom) {
+            QByteArray const r = civQuery(QByteArray(1, char(0x03)));
+            if (r.size() < 5) return 0;
+            qint64 hz = 0, mul = 1;
+            for (int i = 0; i < 5; ++i) {
+                const quint8 b = quint8(r.at(i));
+                hz += ((b & 0x0f) + 10 * ((b >> 4) & 0x0f)) * mul;
+                mul *= 100;
+            }
+            return hz;
+        }
         QString const r = query(QStringLiteral("FA;"), QStringLiteral("FA"));
         if (r.size() < 11) return 0;
         return r.mid(2, 9).toLongLong();
@@ -363,6 +380,17 @@ public:
 
     QString readMode()
     {
+        if (m_icom) {
+            QByteArray const r = civQuery(QByteArray(1, char(0x04)));
+            if (r.isEmpty()) return QString();
+            switch (quint8(r.at(0))) {
+            case 0x00: return QStringLiteral("LSB"); case 0x01: return QStringLiteral("USB");
+            case 0x02: return QStringLiteral("AM"); case 0x03: return QStringLiteral("CW");
+            case 0x04: return QStringLiteral("RTTY"); case 0x05: return QStringLiteral("FM");
+            case 0x06: return QStringLiteral("CWR"); case 0x07: return QStringLiteral("RTTYR");
+            default: return QString();
+            }
+        }
         QString const r = query(QStringLiteral("MD0;"), QStringLiteral("MD"));
         if (r.size() < 4) return QString();
         // codici del FT-991: la lettera finale identifica il modo
@@ -379,6 +407,48 @@ public:
     }
 
 private:
+    void setFrequency(qint64 hz)
+    {
+        if (!m_icom) { send(QStringLiteral("FA%1;").arg(hz, 9, 10, QChar('0'))); return; }
+        QByteArray d(5, 0); qint64 v = hz;
+        for (int i = 0; i < 5; ++i) { d[i] = char((v % 10) | ((v / 10 % 10) << 4)); v /= 100; }
+        civWrite(0x05, d);
+    }
+
+    void setPtt(bool on)
+    {
+        if (!m_icom) { send(on ? QStringLiteral("TX1;") : QStringLiteral("TX0;")); return; }
+        QByteArray d(2, 0); d[0] = 0x00; d[1] = on ? 0x01 : 0x00; civWrite(0x1c, d);
+    }
+
+    void setMode(const QString& mode)
+    {
+        if (!m_icom) { const QChar c = codiceModo(mode); send(QStringLiteral("MD0%1;").arg(c)); return; }
+        static const QHash<QString, quint8> modes{{"LSB",0x00},{"USB",0x01},{"AM",0x02},{"CW",0x03},{"RTTY",0x04},{"FM",0x05},{"CWR",0x06},{"RTTYR",0x07}};
+        if (modes.contains(mode)) civWrite(0x06, QByteArray(2, char(modes.value(mode))));
+    }
+
+    void civWrite(quint8 command, const QByteArray& data)
+    {
+        if (!isOpen()) return;
+        QByteArray frame("\xfe\xfe", 2); frame.append(char(m_civAddress)); frame.append(char(0xe0)); frame.append(char(command)); frame.append(data); frame.append(char(0xfd));
+        m_port->write(frame); m_port->waitForBytesWritten(300);
+    }
+
+    QByteArray civQuery(const QByteArray& command)
+    {
+        if (!isOpen()) return {};
+        QByteArray frame("\xfe\xfe", 2); frame.append(char(m_civAddress)); frame.append(char(0xe0)); frame.append(command); frame.append(char(0xfd));
+        m_port->clear(QSerialPort::Input); m_port->write(frame); m_port->waitForBytesWritten(300);
+        QByteArray acc; QElapsedTimer t; t.start();
+        while (t.elapsed() < 500) {
+            if (!m_port->waitForReadyRead(80)) continue; acc += m_port->readAll();
+            const int start = acc.indexOf("\xfe\xfe", 2); const int end = acc.indexOf(char(0xfd), start);
+            if (start >= 0 && end > start + 4) return acc.mid(start + 5, end - start - 5);
+        }
+        return {};
+    }
+
     void send(const QString& s)
     {
         if (!isOpen()) return;
@@ -411,6 +481,8 @@ private:
 
     QSerialPort* m_port {nullptr};
     QString m_error;
+    bool m_icom {false};
+    quint8 m_civAddress {0x94};
 };
 
 class Client : public QWidget
@@ -564,12 +636,34 @@ public:
         m_stats->setWordWrap(true);
 
         // ---- CAT: controllo del rig sulla seriale, servito al telefono ----
+        m_catModel = new QComboBox;
+        m_catModel->addItem(QStringLiteral("Yaesu (CAT)"), false);
+        m_catModel->addItem(QStringLiteral("Icom IC-7300 (CI-V)"), true);
+        m_catModel->setCurrentIndex(1);
+        m_catCivAddr = new QLineEdit(QStringLiteral("0x94"));
+        m_catCivAddr->setMaximumWidth(100);
         m_catPort = new QComboBox;
         for (QSerialPortInfo const& pi : QSerialPortInfo::availablePorts())
             m_catPort->addItem(pi.portName() + "  " + pi.description());
         m_catBaud = new QComboBox;
         for (int b : {4800, 9600, 19200, 38400, 57600, 115200}) m_catBaud->addItem(QString::number(b));
-        m_catBaud->setCurrentText(QStringLiteral("38400"));
+        m_catBaud->setCurrentText(QStringLiteral("115200"));
+        m_catDataBits = new QComboBox;
+        m_catDataBits->addItem(QStringLiteral("7"), int(QSerialPort::Data7));
+        m_catDataBits->addItem(QStringLiteral("8"), int(QSerialPort::Data8));
+        m_catDataBits->setCurrentText(QStringLiteral("8"));
+        m_catParity = new QComboBox;
+        m_catParity->addItem(QStringLiteral("nessuna"), int(QSerialPort::NoParity));
+        m_catParity->addItem(QStringLiteral("pari"), int(QSerialPort::EvenParity));
+        m_catParity->addItem(QStringLiteral("dispari"), int(QSerialPort::OddParity));
+        m_catStopBits = new QComboBox;
+        m_catStopBits->addItem(QStringLiteral("1"), int(QSerialPort::OneStop));
+        m_catStopBits->addItem(QStringLiteral("2"), int(QSerialPort::TwoStop));
+        m_catStopBits->setCurrentIndex(1);
+        m_catFlow = new QComboBox;
+        m_catFlow->addItem(QStringLiteral("nessuno"), int(QSerialPort::NoFlowControl));
+        m_catFlow->addItem(QStringLiteral("RTS/CTS"), int(QSerialPort::HardwareControl));
+        m_catFlow->addItem(QStringLiteral("XON/XOFF"), int(QSerialPort::SoftwareControl));
         m_catTcpPort = new QSpinBox; m_catTcpPort->setRange(1, 65535); m_catTcpPort->setValue(4532);
         m_catOn = new QCheckBox(QStringLiteral("Servi il CAT al telefono"));
         m_catState = new QLabel(QStringLiteral("CAT spento"));
@@ -583,6 +677,12 @@ public:
         catForm->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
         catForm->setHorizontalSpacing(10);
         catForm->setVerticalSpacing(7);
+        catForm->addRow(QStringLiteral("Radio / protocollo"), m_catModel);
+        auto* rigaCiv = new QHBoxLayout;
+        rigaCiv->addWidget(m_catCivAddr);
+        rigaCiv->addWidget(new QLabel(QStringLiteral("indirizzo CI-V (Icom)")));
+        rigaCiv->addStretch(1);
+        catForm->addRow(QStringLiteral("CI-V"), rigaCiv);
         catForm->addRow(QStringLiteral("Audio al rig"), m_rigOut);
         catForm->addRow(QStringLiteral("Porta rig"), m_catPort);
         // Velocita' e porta TCP sono due numeri corti: stanno insieme.
@@ -595,6 +695,16 @@ public:
         m_catTcpPort->setFixedWidth(78);
         rigaBaud->addWidget(m_catTcpPort);
         catForm->addRow(QStringLiteral("Velocità"), rigaBaud);
+        auto* rigaSeriale = new QHBoxLayout;
+        rigaSeriale->setSpacing(8);
+        rigaSeriale->addWidget(new QLabel(QStringLiteral("dati")));
+        rigaSeriale->addWidget(m_catDataBits);
+        rigaSeriale->addWidget(new QLabel(QStringLiteral("parità")));
+        rigaSeriale->addWidget(m_catParity, 1);
+        rigaSeriale->addWidget(new QLabel(QStringLiteral("stop")));
+        rigaSeriale->addWidget(m_catStopBits);
+        catForm->addRow(QStringLiteral("Seriale"), rigaSeriale);
+        catForm->addRow(QStringLiteral("Handshake"), m_catFlow);
 
         // ---- accesso: chi sei, e che cosa ti lasciano fare ----
         m_authHost = new QLineEdit;
@@ -698,14 +808,17 @@ public:
         // Le tendine non devono dettare la larghezza della finestra: si adattano
         // al posto che c'e', e il testo lungo lo si legge nel suggerimento.
         for (QComboBox* c : { m_device, m_mode, m_station, m_profile, m_aggr, m_srate,
-                              m_catPort, m_catBaud, m_rigOut }) {
+                              m_catModel, m_catPort, m_catBaud, m_catDataBits, m_catParity, m_catStopBits,
+                              m_catFlow, m_rigOut }) {
             c->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
             c->setMinimumContentsLength(12);
             c->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
         }
         setStyleSheet(foglioStile());
-        setMinimumWidth(600);
-        resize(700, sizeHint().height());
+        // La scheda CAT contiene parametri con etichette lunghe: una finestra
+        // stretta rende i controlli illeggibili e comprime le combobox.
+        setMinimumSize(1000, 760);
+        resize(1180, 820);
 
         connect(m_start, &QPushButton::clicked, this, [this]{ m_running ? stop() : start(); });
         connect(m_mode, &QComboBox::currentIndexChanged, this, &Client::syncFields);
@@ -991,7 +1104,18 @@ private slots:
         }
         QString const port = m_catPort->currentText().section(QLatin1Char(' '), 0, 0);
         if (port.isEmpty()) { m_catState->setText(QStringLiteral("nessuna porta seriale")); m_catOn->setChecked(false); return; }
-        if (!m_rig.open(port, m_catBaud->currentText().toInt())) {
+        bool civOk = false;
+        int const civAddress = m_catCivAddr->text().trimmed().toInt(&civOk, 0);
+        if (m_catModel->currentData().toBool() && (!civOk || civAddress < 0 || civAddress > 255)) {
+            m_catState->setText(QStringLiteral("indirizzo CI-V non valido"));
+            m_catOn->setChecked(false); return;
+        }
+        if (!m_rig.open(port, m_catBaud->currentText().toInt(),
+                        QSerialPort::DataBits(m_catDataBits->currentData().toInt()),
+                        QSerialPort::Parity(m_catParity->currentData().toInt()),
+                        QSerialPort::StopBits(m_catStopBits->currentData().toInt()),
+                        QSerialPort::FlowControl(m_catFlow->currentData().toInt()),
+                        m_catModel->currentData().toBool(), civOk ? civAddress : 0x94)) {
             m_catState->setText(QStringLiteral("%1 non si apre: %2").arg(port, m_rig.error()));
             m_catOn->setChecked(false);
             return;
@@ -1803,7 +1927,13 @@ private:
         // dall'altra parte. Il risparmio si sceglie, non si subisce.
         int const si = m_srate->findData(s.value(QStringLiteral("srate"), 48000).toInt());
         if (si >= 0) m_srate->setCurrentIndex(si);
-        m_catBaud->setCurrentText(s.value(QStringLiteral("catBaud"), QStringLiteral("38400")).toString());
+        m_catModel->setCurrentIndex(s.value(QStringLiteral("catModel"), 1).toInt());
+        m_catCivAddr->setText(s.value(QStringLiteral("catCivAddr"), QStringLiteral("0x94")).toString());
+        m_catBaud->setCurrentText(s.value(QStringLiteral("catBaud"), QStringLiteral("115200")).toString());
+        m_catDataBits->setCurrentText(s.value(QStringLiteral("catDataBits"), QStringLiteral("8")).toString());
+        m_catParity->setCurrentIndex(s.value(QStringLiteral("catParity"), 0).toInt());
+        m_catStopBits->setCurrentIndex(s.value(QStringLiteral("catStopBits"), 0).toInt());
+        m_catFlow->setCurrentIndex(s.value(QStringLiteral("catFlow"), 0).toInt());
         m_catTcpPort->setValue(s.value(QStringLiteral("catTcpPort"), 4532).toInt());
         QString const cp = s.value(QStringLiteral("catPort")).toString();
         for (int i = 0; i < m_catPort->count(); ++i)
@@ -1837,7 +1967,13 @@ private:
         // sul disco allungherebbe soltanto la vita a una credenziale rubata.
         s.setValue(QStringLiteral("device"), m_device->currentText());
         s.setValue(QStringLiteral("catPort"), m_catPort->currentText().section(QLatin1Char(' '), 0, 0));
+        s.setValue(QStringLiteral("catModel"), m_catModel->currentIndex());
+        s.setValue(QStringLiteral("catCivAddr"), m_catCivAddr->text());
         s.setValue(QStringLiteral("catBaud"), m_catBaud->currentText());
+        s.setValue(QStringLiteral("catDataBits"), m_catDataBits->currentText());
+        s.setValue(QStringLiteral("catParity"), m_catParity->currentIndex());
+        s.setValue(QStringLiteral("catStopBits"), m_catStopBits->currentIndex());
+        s.setValue(QStringLiteral("catFlow"), m_catFlow->currentIndex());
         s.setValue(QStringLiteral("catTcpPort"), m_catTcpPort->value());
         s.setValue(QStringLiteral("catOn"), m_catOn->isChecked());
         s.setValue(QStringLiteral("rigOut"), m_rigOut->currentText());
@@ -1865,7 +2001,8 @@ private:
     bool m_canTx {false}, m_authPending {false}, m_autoStart {false};
     QTimer m_renew;
 
-    QComboBox *m_catPort, *m_catBaud;
+    QComboBox *m_catModel, *m_catPort, *m_catBaud, *m_catDataBits, *m_catParity, *m_catStopBits, *m_catFlow;
+    QLineEdit* m_catCivAddr;
     QSpinBox* m_catTcpPort;
     QCheckBox* m_catOn;
     QLabel* m_catState;
@@ -2512,7 +2649,10 @@ int main(int argc, char** argv)
         for (QSerialPortInfo const& pi : QSerialPortInfo::availablePorts()) out << " " << pi.portName();
         out << "\napro " << port << " a " << baud << " baud\n";
         CatRig rig;
-        if (!rig.open(port, baud)) { out << "apertura fallita: " << rig.error() << "\n"; out.flush(); return 6; }
+        if (!rig.open(port, baud, QSerialPort::Data8, QSerialPort::NoParity,
+                      QSerialPort::OneStop, QSerialPort::NoFlowControl)) {
+            out << "apertura fallita: " << rig.error() << "\n"; out.flush(); return 6;
+        }
         qint64 const hz = rig.readFreq();
         QString const md = rig.readMode();
         out << "frequenza letta: " << hz << "\nmodo letto: " << (md.isEmpty() ? QStringLiteral("(nessuna risposta)") : md) << "\n";
