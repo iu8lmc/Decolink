@@ -90,7 +90,11 @@ void putU32(char* p, quint32 v) { p[0]=char(v>>24); p[1]=char(v>>16); p[2]=char(
 void putU64(char* p, quint64 v) { for (int i = 0; i < 8; ++i) p[i] = char(v >> (56 - 8*i)); }
 quint32 getU32(const uchar* p) { return (quint32(p[0])<<24)|(quint32(p[1])<<16)|(quint32(p[2])<<8)|p[3]; }
 
-QByteArray hfgwPacket(quint8 flags, quint32 seq, const char* payload, int len)
+// La frequenza va scritta nell'intestazione, non data per scontata: e' il campo
+// che dice a chi riceve a che velocita' riprodurre. Mandare 12 kHz dichiarando
+// 48 farebbe sentire l'audio al quadruplo della velocita'.
+QByteArray hfgwPacket(quint8 flags, quint32 seq, const char* payload, int len,
+                      int rate = kRate)
 {
     QByteArray pkt(kHdrSize + qMax(0, len), Qt::Uninitialized);
     char* p = pkt.data();
@@ -98,7 +102,7 @@ QByteArray hfgwPacket(quint8 flags, quint32 seq, const char* payload, int len)
     p[4] = char(kProtoVer); p[5] = char(flags);
     putU32(p + 6, seq);
     putU64(p + 10, quint64(QDateTime::currentMSecsSinceEpoch()));
-    putU32(p + 18, kRate);
+    putU32(p + 18, quint32(rate));
     if (payload && len > 0) std::memcpy(p + kHdrSize, payload, size_t(len));
     return pkt;
 }
@@ -331,8 +335,21 @@ public:
         // un telefono che aspetta PCM significa mandare audio che non arriva.
         // Il passaggio a un profilo migliore lo chiede il telefono (CTRL/HELLO o
         // CTRL/SCEGLI); qui si puo' forzare a mano, sapendo cosa si sta facendo.
+        // Quanti campioni al secondo mandare. Non e' una scelta di qualita': un
+        // SSB occupa 2,7 kHz e il filtro della radio non lascia passare altro,
+        // quindi 12 kHz — che ne trasportano 6 — bastano per tutto quello che
+        // esce davvero dal rig. Resta PCM: nessuna compressione, nessuna perdita.
+        //
+        // Funziona solo se chi riceve legge il campo della frequenza invece di
+        // dare per scontati i 48 kHz. Se lo ignora, l'audio si sente accelerato:
+        // se ne accorge subito e si torna indietro da qui.
+        m_srate = new QComboBox;
+        m_srate->addItem(QStringLiteral("48 kHz — 808 kbit/s (sicuro, come sempre)"), 48000);
+        m_srate->addItem(QStringLiteral("24 kHz — 424 kbit/s, metà banda"), 24000);
+        m_srate->addItem(QStringLiteral("12 kHz — 232 kbit/s, un quarto"), 12000);
+
         m_profile = new QComboBox;
-        m_profile->addItem(QStringLiteral("PCM 48 kHz — compatibile con tutti, 808 kbit/s"), dl::PPcm48);
+        m_profile->addItem(QStringLiteral("PCM — compatibile con tutti"), dl::PPcm48);
         m_profile->addItem(QStringLiteral("Voce — Opus, 32 kbit/s (serve un client aggiornato)"), dl::PVoce);
         m_profile->addItem(QStringLiteral("CW — Opus banda stretta, 20 kbit/s"), dl::PCw);
         m_profile->addItem(QStringLiteral("Digitali — senza perdite, 146 kbit/s"), dl::PDigi);
@@ -353,6 +370,7 @@ public:
         form->addRow(QStringLiteral("Porta"), m_port);
         form->addRow(QStringLiteral("Stazione"), m_station);
         form->addRow(QStringLiteral("Profilo audio"), m_profile);
+        form->addRow(QStringLiteral("Campionamento"), m_srate);
         form->addRow(QStringLiteral("Pacchetti da"), m_aggr);
 
         m_start = new QPushButton(QStringLiteral("Avvia"));
@@ -445,6 +463,15 @@ public:
         });
         connect(m_aggr, &QComboBox::currentIndexChanged, this, [this](int){
             m_daSpedire.clear();       // i frame in attesa erano per il vecchio raggruppamento
+            saveSettings();
+        });
+        connect(m_srate, &QComboBox::currentIndexChanged, this, [this](int){
+            preparaPcm();
+            m_acc.clear();
+            if (m_running)
+                setStatus(QStringLiteral("campionamento a %1 kHz: se il telefono lo sente "
+                                         "accelerato, torna a 48")
+                              .arg(campionamento() / 1000));
             saveSettings();
         });
         connect(m_password, &QLineEdit::returnPressed, this, [this]{ login(); });
@@ -782,7 +809,24 @@ private slots:
             // Audio che il telefono vuole trasmettere: lo si riproduce nel CODEC
             // USB del rig. Il PTT lo ha gia' alzato il telefono via CAT.
             if (flags == kFlagTxAudio) {
-                feedTx(dg.mid(kHdrSize));
+                // Se arriva a frequenza ridotta va riportato a 48 kHz, che e'
+                // quello che vuole la scheda del rig: riprodurlo cosi' com'e'
+                // lo farebbe sentire rallentato in aria.
+                quint32 const hz = getU32(h + 18);
+                QByteArray const corpo = dg.mid(kHdrSize);
+                if (hz == 24000 || hz == 12000) {
+                    if (m_txHz != int(hz)) {
+                        m_txHz = int(hz);
+                        m_pcmInterp = dl::Interpolatore(kRate / int(hz), hz * 0.425);
+                    }
+                    QVector<qint16> const su =
+                        m_pcmInterp.su(reinterpret_cast<const qint16*>(corpo.constData()),
+                                       corpo.size() / 2);
+                    feedTx(QByteArray(reinterpret_cast<const char*>(su.constData()),
+                                      int(su.size()) * 2));
+                } else {
+                    feedTx(corpo);
+                }
                 continue;
             }
             // CAT incapsulato nel canale audio: cosi' funziona anche fuori casa,
@@ -1013,7 +1057,21 @@ private slots:
 
             QByteArray pkt;
             if (prof == dl::PPcm48) {
-                pkt = hfgwPacket(kFlagAudio, m_seq++, frame.constData(), frame.size());
+                int const hz = campionamento();
+                if (hz >= kRate) {
+                    pkt = hfgwPacket(kFlagAudio, m_seq++, frame.constData(), frame.size(), kRate);
+                } else {
+                    // Si filtra e si riduce: senza il filtro, tutto quello sopra
+                    // la nuova meta' frequenza tornerebbe ripiegato dentro la
+                    // banda utile, e sarebbero righe false proprio dove si
+                    // ascolta. La frequenza vera va nell'intestazione.
+                    QVector<qint16> const giu =
+                        m_pcmDecim.giu(reinterpret_cast<const qint16*>(frame.constData()), campioni);
+                    if (giu.isEmpty()) continue;
+                    pkt = hfgwPacket(kFlagAudio, m_seq++,
+                                     reinterpret_cast<const char*>(giu.constData()),
+                                     int(giu.size()) * 2, hz);
+                }
             } else if (prof == dl::PDigi) {
                 // 48 -> 12 kHz filtrando come si deve, poi compressione senza
                 // perdite: il decodificatore riceve esattamente i campioni che
@@ -1082,6 +1140,26 @@ private slots:
         if (!m_peerSaAggr) return 1;
         if (profiloAttivo() == dl::PDigi) return 1;   // qui il blocco e' gia' da 40 ms
         return qBound(1, m_aggr->currentData().toInt(), dl::kMaxAggr);
+    }
+
+    // Campioni al secondo da mandare. Vale solo per il PCM: gli altri profili
+    // hanno la loro frequenza, decisa dal codec.
+    int campionamento() const
+    {
+        int const hz = m_srate->currentData().toInt();
+        return (hz == 24000 || hz == 12000) ? hz : kRate;
+    }
+
+    // Rifà il filtro quando cambia la frequenza scelta: il rapporto di riduzione
+    // e il taglio dipendono da quella, e tenersi il filtro di prima vorrebbe dire
+    // filtrare alla frequenza sbagliata.
+    void preparaPcm()
+    {
+        int const hz = campionamento();
+        if (hz >= kRate) return;
+        // Taglio all'85% della nuova metà frequenza: il margine serve perché la
+        // banda di transizione di un filtro vero non è verticale.
+        m_pcmDecim = dl::Decimatore(kRate / hz, hz * 0.425);
     }
 
     // ---- CW a tasto ----
@@ -1264,7 +1342,11 @@ private slots:
                              .arg(m_rimandati).arg(m_chiesti);
             if (m_troppoTardi > 0)
                 testo += QStringLiteral("   %1 fuori finestra").arg(m_troppoTardi);
-        } else if (prof != dl::PPcm48) {
+        } else if (prof == dl::PPcm48) {
+            testo += QStringLiteral("   %1 kHz").arg(campionamento() / 1000);
+            if (campionamento() < kRate)
+                testo += QStringLiteral(" (banda audio %1 kHz)").arg(campionamento() / 2000);
+        } else {
             testo += QStringLiteral("   Opus %1 kbit/s").arg(m_opusOut.bitrate() / 1000);
             int const n = aggrAttivo();
             testo += (n > 1) ? QStringLiteral("   pacchetti da %1 ms").arg(n * 20)
@@ -1376,6 +1458,7 @@ private:
         connect(m_sock, &QUdpSocket::readyRead, this, &Client::onDatagram);
 
         apriCodec();
+        preparaPcm();
         m_bytesUscita = m_bytesEntrata = 0;
         m_tempoCampioni = 0;
         m_bandaTimer.restart();
@@ -1460,6 +1543,10 @@ private:
         }
         int const ai = m_aggr->findData(s.value(QStringLiteral("aggr"), 2).toInt());
         if (ai >= 0) m_aggr->setCurrentIndex(ai);
+        // Predefinito 48 kHz: e' quello che funziona con qualunque programma
+        // dall'altra parte. Il risparmio si sceglie, non si subisce.
+        int const si = m_srate->findData(s.value(QStringLiteral("srate"), 48000).toInt());
+        if (si >= 0) m_srate->setCurrentIndex(si);
         m_catBaud->setCurrentText(s.value(QStringLiteral("catBaud"), QStringLiteral("38400")).toString());
         m_catTcpPort->setValue(s.value(QStringLiteral("catTcpPort"), 4532).toInt());
         QString const cp = s.value(QStringLiteral("catPort")).toString();
@@ -1485,6 +1572,7 @@ private:
         s.setValue(QStringLiteral("remember"), m_remember->isChecked());
         s.setValue(QStringLiteral("profile"), m_profile->currentData().toUInt());
         s.setValue(QStringLiteral("aggr"), m_aggr->currentData().toInt());
+        s.setValue(QStringLiteral("srate"), m_srate->currentData().toInt());
         if (m_remember->isChecked())
             s.setValue(QStringLiteral("password"), m_password->text());
         else
@@ -1499,7 +1587,9 @@ private:
         s.setValue(QStringLiteral("rigOut"), m_rigOut->currentText());
     }
 
-    QComboBox *m_device, *m_mode, *m_station, *m_profile, *m_aggr;
+    QComboBox *m_device, *m_mode, *m_station, *m_profile, *m_aggr, *m_srate;
+    dl::Decimatore m_pcmDecim;      // riduce il PCM alla frequenza scelta
+    dl::Interpolatore m_pcmInterp;  // e riporta a 48 kHz quello che arriva
     QLineEdit* m_host;
     QSpinBox* m_port;
     QPushButton* m_start;
@@ -1542,6 +1632,7 @@ private:
     QElapsedTimer m_bandaTimer;
     quint16 m_seqTxAtteso {0};
     int m_perditaVista {0};
+    int m_txHz {48000};      // frequenza dichiarata da chi ci manda l'audio
     QList<QByteArray> m_daSpedire;   // frame in attesa di partire insieme
 
     // profilo dei digitali: conversione di frequenza e ritrasmissione
@@ -1701,6 +1792,68 @@ int main(int argc, char** argv)
                                   "%4 campioni resi, %5× tempo reale\n")
                        .arg(frame).arg(pacchetti).arg(riletti).arg(campioniResi)
                        .arg(double(secondi) * 1000.0 / double(ms), 0, 'f', 0);
+        }
+
+        // ---- PCM a frequenza ridotta: quanto si risparmia e cosa si perde ----
+        out << "\n  PCM con campionamento ridotto (nessun codec, solo meno campioni):\n";
+        for (int hz : { 48000, 24000, 12000 }) {
+            int const campioni = hz / 100;             // 10 ms
+            double const kbps = double(kHdrSize + campioni * 2 + 28) * 100.0 * 8.0 / 1000.0;
+            out << QStringLiteral("    %1 kHz: %2 byte per pacchetto, %3 kbit/s, "
+                                  "%4 MB/ora, banda audio %5 kHz\n")
+                       .arg(hz / 1000, 2).arg(kHdrSize + campioni * 2)
+                       .arg(kbps, 6, 'f', 1).arg(kbps * 0.45, 4, 'f', 0).arg(hz / 2000);
+        }
+
+        // La prova vera: un tono a 1500 Hz — dove stanno SSB e CW — deve uscire
+        // dalla riduzione con la stessa ampiezza. Se sopravvive quello,
+        // sopravvive tutto quello che una radio produce davvero.
+        out << "\n  un tono a 1500 Hz attraverso la riduzione:\n";
+        for (int hz : { 24000, 12000 }) {
+            dl::Decimatore dec(kRate / hz, hz * 0.425);
+            dl::Interpolatore inter(kRate / hz, hz * 0.425);
+            QVector<qint16> ingresso(kRate / 2);       // mezzo secondo
+            for (int i = 0; i < ingresso.size(); ++i)
+                ingresso[i] = qint16(20000 * std::sin(2 * M_PI * 1500.0 * i / kRate));
+
+            QVector<qint16> giu = dec.giu(ingresso.constData(), ingresso.size());
+            QVector<qint16> su = inter.su(giu.constData(), giu.size());
+
+            // si confrontano le ampiezze a regime, saltando l'avvio dei filtri
+            auto ampiezza = [](const QVector<qint16>& v, int da) {
+                double e = 0; int n = 0;
+                for (int i = da; i < v.size(); ++i) { e += double(v[i]) * v[i]; ++n; }
+                return n ? std::sqrt(e / n) : 0.0;
+            };
+            double const a0 = ampiezza(ingresso, 2000);
+            double const a1 = ampiezza(su, 4000);
+            out << QStringLiteral("    %1 kHz: %2 campioni -> %3, ampiezza %4% "
+                                  "dell'originale  %5\n")
+                       .arg(hz / 1000, 2).arg(ingresso.size()).arg(giu.size())
+                       .arg(a1 / qMax(a0, 1.0) * 100.0, 5, 'f', 1)
+                       .arg(a1 / qMax(a0, 1.0) > 0.9 ? QStringLiteral("intatto")
+                                                     : QStringLiteral("ATTENUATO"));
+        }
+
+        // E cosa succede sopra la banda utile: un tono a 8 kHz, che a 12 kHz di
+        // campionamento non ci starebbe, deve essere tolto dal filtro e non
+        // ripiegarsi dentro la banda buona.
+        {
+            dl::Decimatore dec(4, 12000 * 0.425);
+            dl::Interpolatore inter(4, 12000 * 0.425);
+            QVector<qint16> alto(kRate / 2);
+            for (int i = 0; i < alto.size(); ++i)
+                alto[i] = qint16(20000 * std::sin(2 * M_PI * 8000.0 * i / kRate));
+            QVector<qint16> const giu = dec.giu(alto.constData(), alto.size());
+            QVector<qint16> const su = inter.su(giu.constData(), giu.size());
+            double e = 0; int n = 0;
+            for (int i = 4000; i < su.size(); ++i) { e += double(su[i]) * su[i]; ++n; }
+            double const resta = n ? std::sqrt(e / n) / 20000.0 * 100.0 : 0;
+            out << QStringLiteral("\n    un tono a 8 kHz (fuori dalla banda utile) a 12 kHz: "
+                                  "ne resta il %1%  %2\n")
+                       .arg(resta, 0, 'f', 2)
+                       .arg(resta < 2.0 ? QStringLiteral("tolto dal filtro, niente aliasing")
+                                        : QStringLiteral("ATTENZIONE: rientra ripiegato"));
         }
 
         // ---- profilo dei digitali: la promessa e' che non si perda un bit ----
