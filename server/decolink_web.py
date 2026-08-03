@@ -93,7 +93,7 @@ CSS = """
 }
 * { box-sizing: border-box }
 body { margin:0; background:var(--fondo); color:var(--testo);
-       font:15px/1.55 system-ui,"Helvetica Neue",Roboto,sans-serif }
+       font:15px/1.55 system-ui,"Segoe UI","Helvetica Neue",Roboto,sans-serif }
 a { color:var(--ciano); text-decoration:none } a:hover { text-decoration:underline }
 
 header { background:linear-gradient(90deg,#0b1018 0%,#16213e 55%,#1d2c56 100%);

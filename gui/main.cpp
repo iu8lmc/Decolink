@@ -606,17 +606,18 @@ public:
         avanForm->addRow(QStringLiteral("Profilo"), m_profile);
         avanForm->addRow(QStringLiteral("Campionamento"), m_srate);
         avanForm->addRow(QStringLiteral("Pacchetti da"), m_aggr);
+        m_avanForm = avanForm;      // le righe della seriale si aggiungono dopo
         m_avanzate = new QWidget;
         m_avanzate->setLayout(avanForm);
         m_avanzate->setVisible(false);
 
-        m_mostraAvan = new QPushButton(QStringLiteral("▸  Audio avanzato"));
+        m_mostraAvan = new QPushButton(QStringLiteral("▸  Impostazioni avanzate"));
         m_mostraAvan->setCheckable(true);
         m_mostraAvan->setObjectName(QStringLiteral("piatto"));
         connect(m_mostraAvan, &QPushButton::toggled, this, [this](bool on) {
             m_avanzate->setVisible(on);
-            m_mostraAvan->setText(on ? QStringLiteral("▾  Audio avanzato")
-                                     : QStringLiteral("▸  Audio avanzato"));
+            m_mostraAvan->setText(on ? QStringLiteral("▾  Impostazioni avanzate")
+                                     : QStringLiteral("▸  Impostazioni avanzate"));
             // La finestra si stringe da sola quando si richiude: senza questo
             // resterebbe alta come quando era aperta.
             QTimer::singleShot(0, this, [this] { resize(width(), sizeHint().height()); });
@@ -678,11 +679,12 @@ public:
         catForm->setHorizontalSpacing(10);
         catForm->setVerticalSpacing(7);
         catForm->addRow(QStringLiteral("Radio / protocollo"), m_catModel);
-        auto* rigaCiv = new QHBoxLayout;
-        rigaCiv->addWidget(m_catCivAddr);
-        rigaCiv->addWidget(new QLabel(QStringLiteral("indirizzo CI-V (Icom)")));
-        rigaCiv->addStretch(1);
-        catForm->addRow(QStringLiteral("CI-V"), rigaCiv);
+        m_etCiv = new QLabel(QStringLiteral("Indirizzo CI-V"));
+        m_catCivAddr->setToolTip(QStringLiteral(
+            "L'indirizzo con cui il rig risponde sul bus CI-V.\n"
+            "IC-7300: 0x94 (predefinito di fabbrica). Se e' stato cambiato nei\n"
+            "menu della radio, va scritto lo stesso valore qui."));
+        catForm->addRow(m_etCiv, m_catCivAddr);
         catForm->addRow(QStringLiteral("Audio al rig"), m_rigOut);
         catForm->addRow(QStringLiteral("Porta rig"), m_catPort);
         // Velocita' e porta TCP sono due numeri corti: stanno insieme.
@@ -695,16 +697,40 @@ public:
         m_catTcpPort->setFixedWidth(78);
         rigaBaud->addWidget(m_catTcpPort);
         catForm->addRow(QStringLiteral("Velocità"), rigaBaud);
+        // Bit di dati, parità, stop e handshake stanno fra le avanzate: sono i
+        // parametri che si impostano una volta secondo il manuale del rig e non
+        // si guardano mai piu'. In vista lasciano solo una colonna lunga il
+        // doppio dell'altra.
         auto* rigaSeriale = new QHBoxLayout;
         rigaSeriale->setSpacing(8);
-        rigaSeriale->addWidget(new QLabel(QStringLiteral("dati")));
+        auto* etDati = new QLabel(QStringLiteral("dati"));
+        etDati->setObjectName(QStringLiteral("minuscolo"));
+        rigaSeriale->addWidget(etDati);
         rigaSeriale->addWidget(m_catDataBits);
-        rigaSeriale->addWidget(new QLabel(QStringLiteral("parità")));
+        auto* etPar = new QLabel(QStringLiteral("parità"));
+        etPar->setObjectName(QStringLiteral("minuscolo"));
+        rigaSeriale->addWidget(etPar);
         rigaSeriale->addWidget(m_catParity, 1);
-        rigaSeriale->addWidget(new QLabel(QStringLiteral("stop")));
+        auto* etStop = new QLabel(QStringLiteral("stop"));
+        etStop->setObjectName(QStringLiteral("minuscolo"));
+        rigaSeriale->addWidget(etStop);
         rigaSeriale->addWidget(m_catStopBits);
-        catForm->addRow(QStringLiteral("Seriale"), rigaSeriale);
-        catForm->addRow(QStringLiteral("Handshake"), m_catFlow);
+        m_avanForm->addRow(QStringLiteral("Seriale"), rigaSeriale);
+        m_avanForm->addRow(QStringLiteral("Handshake"), m_catFlow);
+
+        // L'indirizzo CI-V riguarda solo gli Icom: con un Yaesu davanti e' una
+        // riga che non vuol dire niente, quindi compare quando serve.
+        auto sistemaCiv = [this] {
+            bool const icom = m_catModel->currentData().toBool();
+            m_catCivAddr->setVisible(icom);
+            m_etCiv->setVisible(icom);
+        };
+        connect(m_catModel, &QComboBox::currentIndexChanged, this,
+                [this, sistemaCiv](int) {
+                    sistemaCiv();
+                    QTimer::singleShot(0, this, [this] { resize(width(), sizeHint().height()); });
+                });
+        QTimer::singleShot(0, this, sistemaCiv);
 
         // ---- accesso: chi sei, e che cosa ti lasciano fare ----
         m_authHost = new QLineEdit;
@@ -815,10 +841,14 @@ public:
             c->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
         }
         setStyleSheet(foglioStile());
-        // La scheda CAT contiene parametri con etichette lunghe: una finestra
-        // stretta rende i controlli illeggibili e comprime le combobox.
-        setMinimumSize(1000, 760);
-        resize(1180, 820);
+        // I parametri della seriale con le etichette lunghe stanno fra le
+        // avanzate, quindi la finestra non deve piu' essere larga mille pixel
+        // per contenerli: si prende lo spazio che le serve davvero.
+        setMinimumWidth(640);
+        // Il ridimensionamento va fatto a layout finito. Chiamandolo qui si
+        // misurerebbe una finestra che deve ancora sistemare i widget nascosti,
+        // e resterebbe alta il doppio con un vuoto in mezzo.
+        QTimer::singleShot(0, this, [this] { resize(720, sizeHint().height()); });
 
         connect(m_start, &QPushButton::clicked, this, [this]{ m_running ? stop() : start(); });
         connect(m_mode, &QComboBox::currentIndexChanged, this, &Client::syncFields);
@@ -1981,6 +2011,8 @@ private:
 
     QComboBox *m_device, *m_mode, *m_station, *m_profile, *m_aggr, *m_srate;
     QWidget* m_avanzate;          // le impostazioni audio, chiuse di default
+    QFormLayout* m_avanForm;      // dove finiscono i parametri della seriale
+    QLabel* m_etCiv;              // etichetta dell'indirizzo CI-V
     QPushButton* m_mostraAvan;
     dl::Decimatore m_pcmDecim;      // riduce il PCM alla frequenza scelta
     dl::Interpolatore m_pcmInterp;  // e riporta a 48 kHz quello che arriva
