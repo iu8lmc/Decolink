@@ -75,4 +75,10 @@ if ($r -ne 0 -and $esito -eq 0) { $esito = $r }
 $r = Prova -Argomenti "--emrgtest" -TimeoutMs 180000 -Facoltativa
 if ($r -ne 0 -and $esito -eq 0) { $esito = $r }
 
+# Hamlib: apre la radio finta e le comanda frequenza, modo e PTT. Senza questa
+# prova, un pacchetto a cui manca libhamlib sembrerebbe valido finche' qualcuno
+# non prova a collegare una radio.
+$r = Prova -Argomenti "--hamlibtest" -TimeoutMs 120000 -Facoltativa
+if ($r -ne 0 -and $esito -eq 0) { $esito = $r }
+
 exit $esito

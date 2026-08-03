@@ -58,6 +58,9 @@
 #include <QMutex>
 
 #include "cwkey.h"
+#ifdef DECOLINK_CON_HAMLIB
+#include "hamlibrig.h"
+#endif
 #include "dlproto.h"
 #include "lossless.h"
 #include "opusvoce.h"
@@ -240,6 +243,24 @@ class CatRig : public QObject
 public:
     explicit CatRig(QObject* parent = nullptr) : QObject(parent) {}
 
+#ifdef DECOLINK_CON_HAMLIB
+    // Apre la radio attraverso Hamlib. Da qui in poi frequenza, modo e PTT
+    // passano dalla libreria, che sa come parla il singolo modello: sono
+    // trecento apparati contro i due che sappiamo fare a mano.
+    bool openHamlib(int modello, const QString& porta, int baud, int bitDati,
+                    int bitStop, const QString& handshake)
+    {
+        close();
+        if (!m_ham.apri(modello, porta, baud, bitDati, bitStop, handshake)) {
+            m_error = m_ham.errore();
+            return false;
+        }
+        m_usaHamlib = true;
+        return true;
+    }
+    QString hamlibNome() const { return m_ham.nome(); }
+#endif
+
     bool open(const QString& portName, int baud, QSerialPort::DataBits dataBits,
               QSerialPort::Parity parity, QSerialPort::StopBits stopBits,
               QSerialPort::FlowControl flowControl, bool icom = false, int civAddress = 0x94)
@@ -266,9 +287,19 @@ public:
     void close()
     {
         if (m_port) { m_port->close(); m_port->deleteLater(); m_port = nullptr; }
+#ifdef DECOLINK_CON_HAMLIB
+        m_ham.chiudi();
+        m_usaHamlib = false;
+#endif
     }
 
-    bool isOpen() const { return m_port && m_port->isOpen(); }
+    bool isOpen() const
+    {
+#ifdef DECOLINK_CON_HAMLIB
+        if (m_usaHamlib) return m_ham.aperto();
+#endif
+        return m_port && m_port->isOpen();
+    }
     QString error() const { return m_error; }
 
     // Esegue una riga di comando netrigctl e restituisce la risposta da mandare
@@ -300,6 +331,10 @@ public:
         if (cmd == QLatin1String("t")) {
             QString const r = m_icom ? civQuery(QByteArray(1, char(0x1c)) + QByteArray(1, char(0)))
                                      : query(QStringLiteral("TX;"), QStringLiteral("TX"));
+#ifdef DECOLINK_CON_HAMLIB
+            if (m_usaHamlib)
+                return m_ham.inTrasmissione() ? QStringLiteral("1\n") : QStringLiteral("0\n");
+#endif
             if (m_icom) return (r.size() >= 3 && quint8(r.at(2).toLatin1()) != 0) ? QStringLiteral("1\n") : QStringLiteral("0\n");
             return (r.size() >= 3 && r.at(2) != QLatin1Char('0')) ? QStringLiteral("1\n") : QStringLiteral("0\n");
         }
@@ -362,6 +397,9 @@ public:
 
     qint64 readFreq()
     {
+#ifdef DECOLINK_CON_HAMLIB
+        if (m_usaHamlib) return m_ham.frequenza();
+#endif
         if (m_icom) {
             QByteArray const r = civQuery(QByteArray(1, char(0x03)));
             if (r.size() < 5) return 0;
@@ -380,6 +418,9 @@ public:
 
     QString readMode()
     {
+#ifdef DECOLINK_CON_HAMLIB
+        if (m_usaHamlib) return m_ham.modo();
+#endif
         if (m_icom) {
             QByteArray const r = civQuery(QByteArray(1, char(0x04)));
             if (r.isEmpty()) return QString();
@@ -409,6 +450,9 @@ public:
 private:
     void setFrequency(qint64 hz)
     {
+#ifdef DECOLINK_CON_HAMLIB
+        if (m_usaHamlib) { m_ham.impostaFrequenza(hz); return; }
+#endif
         if (!m_icom) { send(QStringLiteral("FA%1;").arg(hz, 9, 10, QChar('0'))); return; }
         QByteArray d(5, 0); qint64 v = hz;
         for (int i = 0; i < 5; ++i) { d[i] = char((v % 10) | ((v / 10 % 10) << 4)); v /= 100; }
@@ -417,12 +461,18 @@ private:
 
     void setPtt(bool on)
     {
+#ifdef DECOLINK_CON_HAMLIB
+        if (m_usaHamlib) { m_ham.trasmetti(on); return; }
+#endif
         if (!m_icom) { send(on ? QStringLiteral("TX1;") : QStringLiteral("TX0;")); return; }
         QByteArray d(2, 0); d[0] = 0x00; d[1] = on ? 0x01 : 0x00; civWrite(0x1c, d);
     }
 
     void setMode(const QString& mode)
     {
+#ifdef DECOLINK_CON_HAMLIB
+        if (m_usaHamlib) { m_ham.impostaModo(mode); return; }
+#endif
         if (!m_icom) { const QChar c = codiceModo(mode); send(QStringLiteral("MD0%1;").arg(c)); return; }
         static const QHash<QString, quint8> modes{{"LSB",0x00},{"USB",0x01},{"AM",0x02},{"CW",0x03},{"RTTY",0x04},{"FM",0x05},{"CWR",0x06},{"RTTYR",0x07}};
         if (modes.contains(mode)) civWrite(0x06, QByteArray(2, char(modes.value(mode))));
@@ -481,6 +531,10 @@ private:
 
     QSerialPort* m_port {nullptr};
     QString m_error;
+#ifdef DECOLINK_CON_HAMLIB
+    dl::HamlibRig m_ham;
+    bool m_usaHamlib {false};
+#endif
     bool m_icom {false};
     quint8 m_civAddress {0x94};
 };
@@ -637,9 +691,35 @@ public:
         m_stats->setWordWrap(true);
 
         // ---- CAT: controllo del rig sulla seriale, servito al telefono ----
+        // I due protocolli scritti a mano restano in cima: su un FT-991 o un
+        // IC-7300 gia' collaudati non serve aggiungere uno strato. Sotto ci sono
+        // tutti i modelli che conosce Hamlib, che sono il motivo per cui il
+        // programma ora parla con quasi tutte le radio invece che con due marche.
         m_catModel = new QComboBox;
-        m_catModel->addItem(QStringLiteral("Yaesu (CAT)"), false);
-        m_catModel->addItem(QStringLiteral("Icom IC-7300 (CI-V)"), true);
+        m_catModel->addItem(QStringLiteral("Yaesu — comandi nativi"), -1);
+        m_catModel->addItem(QStringLiteral("Icom IC-7300 — CI-V nativo"), -2);
+#ifdef DECOLINK_CON_HAMLIB
+        {
+            QList<dl::ModelloRig> const elenco = dl::HamlibRig::modelli();
+            m_catModel->insertSeparator(m_catModel->count());
+            QString costruttorePrec;
+            for (dl::ModelloRig const& r : elenco) {
+                // I modelli dichiarati non funzionanti non si mettono in un
+                // elenco da cui scegliere: farebbero solo perdere tempo.
+                if (r.stato == QLatin1String("non funzionante")) continue;
+                QString voce = r.costruttore + QLatin1Char(' ') + r.modello;
+                if (r.stato != QLatin1String("stabile"))
+                    voce += QStringLiteral("  (%1)").arg(r.stato);
+                m_catModel->addItem(voce, r.numero);
+            }
+            m_catModel->setToolTip(
+                QStringLiteral("Hamlib %1 — %2 modelli riconosciuti.\n"
+                               "I primi due sono i protocolli scritti dentro Decolink;\n"
+                               "gli altri passano da Hamlib, la stessa libreria che usa\n"
+                               "Decodium sul desktop.")
+                    .arg(dl::HamlibRig::versione()).arg(elenco.size()));
+        }
+#endif
         m_catModel->setCurrentIndex(1);
         m_catCivAddr = new QLineEdit(QStringLiteral("0x94"));
         m_catCivAddr->setMaximumWidth(100);
@@ -721,7 +801,7 @@ public:
         // L'indirizzo CI-V riguarda solo gli Icom: con un Yaesu davanti e' una
         // riga che non vuol dire niente, quindi compare quando serve.
         auto sistemaCiv = [this] {
-            bool const icom = m_catModel->currentData().toBool();
+            bool const icom = (m_catModel->currentData().toInt() == -2);
             m_catCivAddr->setVisible(icom);
             m_etCiv->setVisible(icom);
         };
@@ -1134,18 +1214,40 @@ private slots:
         }
         QString const port = m_catPort->currentText().section(QLatin1Char(' '), 0, 0);
         if (port.isEmpty()) { m_catState->setText(QStringLiteral("nessuna porta seriale")); m_catOn->setChecked(false); return; }
+        int const scelta = m_catModel->currentData().toInt();
+        bool const nativoIcom = (scelta == -2);
         bool civOk = false;
         int const civAddress = m_catCivAddr->text().trimmed().toInt(&civOk, 0);
-        if (m_catModel->currentData().toBool() && (!civOk || civAddress < 0 || civAddress > 255)) {
+        if (nativoIcom && (!civOk || civAddress < 0 || civAddress > 255)) {
             m_catState->setText(QStringLiteral("indirizzo CI-V non valido"));
             m_catOn->setChecked(false); return;
         }
+
+#ifdef DECOLINK_CON_HAMLIB
+        if (scelta > 0) {
+            // Un modello di Hamlib: la libreria sa da sola come parlargli, e i
+            // parametri della porta glieli si passa come li ha scelti l'utente.
+            static const QHash<int, QString> stretta{
+                { int(QSerialPort::NoFlowControl), QStringLiteral("nessuno") },
+                { int(QSerialPort::HardwareControl), QStringLiteral("hardware") },
+                { int(QSerialPort::SoftwareControl), QStringLiteral("software") } };
+            if (!m_rig.openHamlib(scelta, port, m_catBaud->currentText().toInt(),
+                                  m_catDataBits->currentText().toInt(),
+                                  m_catStopBits->currentText().toInt(),
+                                  stretta.value(m_catFlow->currentData().toInt()))) {
+                m_catState->setText(QStringLiteral("%1 non risponde: %2")
+                                        .arg(port, m_rig.error()));
+                m_catOn->setChecked(false);
+                return;
+            }
+        } else
+#endif
         if (!m_rig.open(port, m_catBaud->currentText().toInt(),
                         QSerialPort::DataBits(m_catDataBits->currentData().toInt()),
                         QSerialPort::Parity(m_catParity->currentData().toInt()),
                         QSerialPort::StopBits(m_catStopBits->currentData().toInt()),
                         QSerialPort::FlowControl(m_catFlow->currentData().toInt()),
-                        m_catModel->currentData().toBool(), civOk ? civAddress : 0x94)) {
+                        nativoIcom, civOk ? civAddress : 0x94)) {
             m_catState->setText(QStringLiteral("%1 non si apre: %2").arg(port, m_rig.error()));
             m_catOn->setChecked(false);
             return;
@@ -2520,6 +2622,98 @@ int main(int argc, char** argv)
                "quella che vedi qui sopra.\n";
         out.flush();
         return 0;
+    }
+
+    // --hamlibtest: elenca le radio conosciute e prova tutta la catena sulla
+    // radio finta di Hamlib, che risponde come una vera senza essere collegata.
+    // E' l'unico modo di verificare il percorso — apertura, frequenza, modo,
+    // PTT — senza avere trecento apparati sul tavolo.
+    if (app.arguments().contains(QStringLiteral("--hamlibtest"))) {
+        QTextStream out(stdout);
+#ifndef DECOLINK_CON_HAMLIB
+        out << "Compilato senza Hamlib: restano i protocolli nativi Yaesu e Icom.\n"
+               "Su MSYS2:  pacman -S mingw-w64-x86_64-hamlib\n";
+        out.flush();
+        return 3;
+#else
+        QList<dl::ModelloRig> const elenco = dl::HamlibRig::modelli();
+        out << dl::HamlibRig::versione() << " — " << elenco.size() << " modelli\n\n";
+
+        QMap<QString, int> perCostruttore;
+        int stabili = 0;
+        for (dl::ModelloRig const& r : elenco) {
+            perCostruttore[r.costruttore]++;
+            if (r.stato == QLatin1String("stabile")) ++stabili;
+        }
+        out << QStringLiteral("  %1 costruttori, %2 modelli dichiarati stabili\n\n")
+                   .arg(perCostruttore.size()).arg(stabili);
+        out << "  i costruttori con piu' modelli:\n";
+        QList<QPair<int, QString>> ordinati;
+        for (auto it = perCostruttore.cbegin(); it != perCostruttore.cend(); ++it)
+            ordinati.append({ it.value(), it.key() });
+        std::sort(ordinati.begin(), ordinati.end(),
+                  [](auto const& a, auto const& b) { return a.first > b.first; });
+        for (int i = 0; i < qMin(8, ordinati.size()); ++i)
+            out << QStringLiteral("    %1  %2\n").arg(ordinati[i].first, 4).arg(ordinati[i].second);
+
+        // Le radio che interessano qui, per vedere che ci siano davvero.
+        out << "\n  qualche modello cercato per nome:\n";
+        for (QString const& cerca : { QStringLiteral("FT-991"), QStringLiteral("IC-7300"),
+                                      QStringLiteral("TS-590"), QStringLiteral("FT-817"),
+                                      QStringLiteral("IC-705"), QStringLiteral("FlexRadio") }) {
+            bool trovato = false;
+            for (dl::ModelloRig const& r : elenco) {
+                if (r.modello.contains(cerca, Qt::CaseInsensitive)
+                    || r.costruttore.contains(cerca, Qt::CaseInsensitive)) {
+                    out << QStringLiteral("    %1 %2  (numero %3, %4)\n")
+                               .arg(r.costruttore, r.modello).arg(r.numero).arg(r.stato);
+                    trovato = true;
+                    break;
+                }
+            }
+            if (!trovato) out << QStringLiteral("    %1: non trovato\n").arg(cerca);
+        }
+
+        // La radio finta: risponde ai comandi come una vera, quindi permette di
+        // provare l'intero percorso senza hardware.
+        out << "\n  prova sulla radio finta di Hamlib:\n";
+        dl::HamlibRig finta;
+        if (!finta.apri(1, QStringLiteral("/dev/null"), 0)) {
+            out << "    non si apre: " << finta.errore() << "\n";
+            out.flush();
+            return 4;
+        }
+        out << QStringLiteral("    aperta: %1\n").arg(finta.nome());
+        bool tutto = true;
+        auto prova = [&](const QString& cosa, bool esito, const QString& letto) {
+            out << QStringLiteral("    %1%2  %3\n").arg(cosa, -34)
+                       .arg(esito ? QStringLiteral("ok") : QStringLiteral("FALLITO"), -8).arg(letto);
+            if (!esito) tutto = false;
+        };
+        bool const okF = finta.impostaFrequenza(14074000);
+        qint64 const letta = finta.frequenza();
+        prova(QStringLiteral("imposta 14.074.000 Hz e rileggi"), okF && letta == 14074000,
+              QStringLiteral("%1 Hz").arg(letta));
+        bool const okM = finta.impostaModo(QStringLiteral("USB"));
+        QString const modo = finta.modo();
+        prova(QStringLiteral("imposta USB e rileggi"), okM && modo == QLatin1String("USB"), modo);
+        bool const okC = finta.impostaModo(QStringLiteral("CW"));
+        QString const modo2 = finta.modo();
+        prova(QStringLiteral("imposta CW e rileggi"), okC && modo2 == QLatin1String("CW"), modo2);
+        bool const okT = finta.trasmetti(true);
+        bool const inTx = finta.inTrasmissione();
+        prova(QStringLiteral("PTT giù e rileggi"), okT && inTx,
+              inTx ? QStringLiteral("in trasmissione") : QStringLiteral("a riposo"));
+        finta.trasmetti(false);
+        prova(QStringLiteral("PTT su e rileggi"), !finta.inTrasmissione(),
+              QStringLiteral("a riposo"));
+        bool const modoStrano = finta.impostaModo(QStringLiteral("PIZZA"));
+        prova(QStringLiteral("un modo inventato viene rifiutato"), !modoStrano, finta.errore());
+        finta.chiudi();
+        out << (tutto ? "\n  la catena funziona\n" : "\n  QUALCOSA NON TORNA\n");
+        out.flush();
+        return tutto ? 0 : 1;
+#endif
     }
 
     // --emrgtest: prova il collegamento d'emergenza al banco, facendo passare
