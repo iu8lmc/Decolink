@@ -33,6 +33,12 @@ struct ModelloRig {
     QString costruttore;
     QString modello;
     QString stato;        // "stabile", "beta", "alfa", "non funzionante"
+    // Vero se si raggiunge per rete invece che sulla seriale. Sono i modelli che
+    // permettono di condividere la radio: uno solo tiene la porta fisica — un
+    // rigctld, FLRig, un altro programma — e tutti gli altri parlano con lui.
+    // Senza, due programmi sulla stessa COM non ci stanno: la porta e' di chi
+    // arriva primo.
+    bool rete {false};
 };
 
 class HamlibRig
@@ -73,9 +79,14 @@ public:
         // I parametri della porta si scrivono nella struttura prima di aprire:
         // Hamlib usa i suoi valori predefiniti per il modello, e vanno
         // sovrascritti solo se l'utente ha chiesto qualcosa di diverso.
+        // Per i modelli di rete il "percorso" e' un indirizzo: localhost:4532
+        // per un rigctld, oppure host:porta di FLRig. I parametri della seriale
+        // non c'entrano niente e non vanno toccati.
+        m_perRete = (m_rig->caps->port_type == RIG_PORT_NETWORK
+                     || m_rig->caps->port_type == RIG_PORT_UDP_NETWORK);
         QByteArray const p = porta.toLocal8Bit();
         std::strncpy(m_rig->state.rigport.pathname, p.constData(), HAMLIB_FILPATHLEN - 1);
-        if (baud > 0) {
+        if (!m_perRete && baud > 0) {
             m_rig->state.rigport.parm.serial.rate = baud;
             m_rig->state.rigport.parm.serial.data_bits = bitDati;
             m_rig->state.rigport.parm.serial.stop_bits = bitStop;
@@ -104,8 +115,18 @@ public:
     }
 
     bool aperto() const { return m_rig != nullptr; }
+    bool perRete() const { return m_perRete; }
     QString errore() const { return m_errore; }
     QString nome() const { return m_nome; }
+
+    // Se il modello indicato si raggiunge per rete. Serve all'interfaccia per
+    // chiedere un indirizzo invece di una porta COM.
+    static bool modelloPerRete(int numero)
+    {
+        for (ModelloRig const& r : modelli())
+            if (r.numero == numero) return r.rete;
+        return false;
+    }
 
     qint64 frequenza()
     {
@@ -147,10 +168,16 @@ public:
             m_errore = QStringLiteral("modo sconosciuto: %1").arg(nome);
             return false;
         }
-        // Larghezza zero significa "quella normale per questo modo su questa
-        // radio": la sceglie Hamlib, che sa cosa accetta il singolo apparato.
+        // Larghezza non indicata significa "quella normale per questo modo su
+        // questa radio", che e' RIG_PASSBAND_NORMAL: la sceglie Hamlib, che sa
+        // cosa accetta il singolo apparato.
+        //
+        // Non NOCHANGE: con una radio condivisa in rete quel valore fa cadere il
+        // comando per strada — il modo non arrivava affatto, e nessuno se ne
+        // accorgeva perche' la chiamata tornava senza errore.
         int const err = rig_set_mode(m_rig, RIG_VFO_CURR, m,
-                                     larghezzaHz > 0 ? pbwidth_t(larghezzaHz) : RIG_PASSBAND_NOCHANGE);
+                                     larghezzaHz > 0 ? pbwidth_t(larghezzaHz)
+                                                     : RIG_PASSBAND_NORMAL);
         if (err != RIG_OK) { m_errore = QString::fromLatin1(rigerror(err)); return false; }
         return true;
     }
@@ -185,16 +212,19 @@ private:
         case RIG_STATUS_UNTESTED: stato = QStringLiteral("mai provato"); break;
         default:                 stato = QStringLiteral("non funzionante"); break;
         }
+        bool const perRete = (c->port_type == RIG_PORT_NETWORK
+                              || c->port_type == RIG_PORT_UDP_NETWORK);
         elenco->append({ int(c->rig_model),
                          QString::fromLatin1(c->mfg_name),
                          QString::fromLatin1(c->model_name),
-                         stato });
+                         stato, perRete });
         return 1;   // continua a scorrere
     }
 
     RIG* m_rig {nullptr};
     QString m_errore, m_nome;
     qint64 m_larghezza {0};
+    bool m_perRete {false};
 };
 
 } // namespace dl

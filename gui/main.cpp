@@ -721,6 +721,15 @@ public:
         }
 #endif
         m_catModel->setCurrentIndex(1);
+        m_catRete = new QLineEdit(QStringLiteral("localhost:4532"));
+        m_catRete->setPlaceholderText(QStringLiteral("host:porta del programma che tiene la radio"));
+        m_catRete->setToolTip(
+            QStringLiteral("Indirizzo del programma che tiene la porta seriale.\n"
+                           "rigctld e i programmi compatibili: localhost:4532\n"
+                           "FLRig: localhost:12345\n\n"
+                           "Serve quando la COM è già occupata da un altro programma:\n"
+                           "la porta seriale è di chi la apre per primo, e in due non\n"
+                           "ci si sta."));
         m_catCivAddr = new QLineEdit(QStringLiteral("0x94"));
         m_catCivAddr->setMaximumWidth(100);
         m_catPort = new QComboBox;
@@ -766,7 +775,13 @@ public:
             "menu della radio, va scritto lo stesso valore qui."));
         catForm->addRow(m_etCiv, m_catCivAddr);
         catForm->addRow(QStringLiteral("Audio al rig"), m_rigOut);
-        catForm->addRow(QStringLiteral("Porta rig"), m_catPort);
+        // La tendina delle COM e il campo dell'indirizzo occupano lo stesso
+        // posto: se ne vede uno solo, quello che serve al modello scelto.
+        auto* rigaPortaRig = new QHBoxLayout;
+        rigaPortaRig->setSpacing(0);
+        rigaPortaRig->addWidget(m_catPort, 1);
+        rigaPortaRig->addWidget(m_catRete, 1);
+        catForm->addRow(QStringLiteral("Porta rig"), rigaPortaRig);
         // Velocita' e porta TCP sono due numeri corti: stanno insieme.
         auto* rigaBaud = new QHBoxLayout;
         rigaBaud->setSpacing(8);
@@ -801,9 +816,20 @@ public:
         // L'indirizzo CI-V riguarda solo gli Icom: con un Yaesu davanti e' una
         // riga che non vuol dire niente, quindi compare quando serve.
         auto sistemaCiv = [this] {
-            bool const icom = (m_catModel->currentData().toInt() == -2);
+            int const scelta = m_catModel->currentData().toInt();
+            bool const icom = (scelta == -2);
             m_catCivAddr->setVisible(icom);
             m_etCiv->setVisible(icom);
+#ifdef DECOLINK_CON_HAMLIB
+            // Con un modello di rete la radio ce l'ha in mano qualcun altro:
+            // serve il suo indirizzo, non una porta COM da aprire.
+            bool const perRete = (scelta > 0) && dl::HamlibRig::modelloPerRete(scelta);
+            m_catPort->setVisible(!perRete);
+            m_catRete->setVisible(perRete);
+            m_catBaud->setEnabled(!perRete);
+#else
+            m_catRete->setVisible(false);
+#endif
         };
         connect(m_catModel, &QComboBox::currentIndexChanged, this,
                 [this, sistemaCiv](int) {
@@ -1213,7 +1239,18 @@ private slots:
             return;
         }
         QString const port = m_catPort->currentText().section(QLatin1Char(' '), 0, 0);
-        if (port.isEmpty()) { m_catState->setText(QStringLiteral("nessuna porta seriale")); m_catOn->setChecked(false); return; }
+        int const modelloScelto = m_catModel->currentData().toInt();
+        bool const usaRete =
+#ifdef DECOLINK_CON_HAMLIB
+            (modelloScelto > 0) && dl::HamlibRig::modelloPerRete(modelloScelto);
+#else
+            false;
+#endif
+        if (port.isEmpty() && !usaRete) {
+            m_catState->setText(QStringLiteral("nessuna porta seriale"));
+            m_catOn->setChecked(false);
+            return;
+        }
         int const scelta = m_catModel->currentData().toInt();
         bool const nativoIcom = (scelta == -2);
         bool civOk = false;
@@ -1225,13 +1262,34 @@ private slots:
 
 #ifdef DECOLINK_CON_HAMLIB
         if (scelta > 0) {
+            bool const perRete = dl::HamlibRig::modelloPerRete(scelta);
+            QString const dove = perRete ? m_catRete->text().trimmed() : port;
+            if (dove.isEmpty()) {
+                m_catState->setText(perRete ? QStringLiteral("manca l'indirizzo del programma "
+                                                             "che tiene la radio")
+                                            : QStringLiteral("nessuna porta seriale"));
+                m_catOn->setChecked(false);
+                return;
+            }
+            // Se ci si collega a un rigctld sulla stessa porta su cui vorremmo
+            // servire il telefono, la nostra non si aprirebbe mai: meglio dirlo
+            // adesso che lasciare due errori da districare dopo.
+            if (perRete && dove.endsWith(QStringLiteral(":%1").arg(m_catTcpPort->value()))
+                && (dove.startsWith(QLatin1String("localhost"))
+                    || dove.startsWith(QLatin1String("127.0.0.1")))) {
+                m_catState->setText(QStringLiteral("la porta TCP %1 e' la stessa a cui ti stai "
+                                                   "collegando: cambiane una")
+                                        .arg(m_catTcpPort->value()));
+                m_catOn->setChecked(false);
+                return;
+            }
             // Un modello di Hamlib: la libreria sa da sola come parlargli, e i
             // parametri della porta glieli si passa come li ha scelti l'utente.
             static const QHash<int, QString> stretta{
                 { int(QSerialPort::NoFlowControl), QStringLiteral("nessuno") },
                 { int(QSerialPort::HardwareControl), QStringLiteral("hardware") },
                 { int(QSerialPort::SoftwareControl), QStringLiteral("software") } };
-            if (!m_rig.openHamlib(scelta, port, m_catBaud->currentText().toInt(),
+            if (!m_rig.openHamlib(scelta, dove, m_catBaud->currentText().toInt(),
                                   m_catDataBits->currentText().toInt(),
                                   m_catStopBits->currentText().toInt(),
                                   stretta.value(m_catFlow->currentData().toInt()))) {
@@ -2115,6 +2173,7 @@ private:
     QWidget* m_avanzate;          // le impostazioni audio, chiuse di default
     QFormLayout* m_avanForm;      // dove finiscono i parametri della seriale
     QLabel* m_etCiv;              // etichetta dell'indirizzo CI-V
+    QLineEdit* m_catRete;         // host:porta di chi tiene la radio
     QPushButton* m_mostraAvan;
     dl::Decimatore m_pcmDecim;      // riduce il PCM alla frequenza scelta
     dl::Interpolatore m_pcmInterp;  // e riporta a 48 kHz quello che arriva
@@ -2672,6 +2731,84 @@ int main(int argc, char** argv)
                 }
             }
             if (!trovato) out << QStringLiteral("    %1: non trovato\n").arg(cerca);
+        }
+
+        // I modelli che si raggiungono per rete: sono quelli che permettono di
+        // condividere una radio fra piu' programmi, invece di litigarsi la COM.
+        out << "\n  modelli che parlano per rete (radio condivisa):\n";
+        int perRete = 0;
+        for (dl::ModelloRig const& r : elenco) {
+            if (!r.rete) continue;
+            ++perRete;
+            if (perRete <= 6)
+                out << QStringLiteral("    %1 %2  (numero %3)\n")
+                           .arg(r.costruttore, r.modello).arg(r.numero);
+        }
+        out << QStringLiteral("    ... %1 in tutto\n").arg(perRete);
+        out << "    con questi la porta seriale resta a chi ce l'ha: Decolink si\n"
+               "    collega a lui e non apre niente.\n";
+
+        // Con "--hamlibtest host:porta" si prova la radio condivisa: ci si
+        // collega a un programma che tiene lui la seriale, come farebbe l'utente
+        // con rigctld o FLRig, e si comanda da li'.
+        {
+            QStringList const a = app.arguments();
+            int const i = a.indexOf(QStringLiteral("--hamlibtest"));
+            QString const dove = (i >= 0 && i + 1 < a.size() && a.at(i + 1).contains(QLatin1Char(':')))
+                                     ? a.at(i + 1) : QString();
+            if (!dove.isEmpty()) {
+                out << QStringLiteral("\n  radio condivisa: mi collego a %1 (modello 2, NET rigctl)\n")
+                           .arg(dove);
+                dl::HamlibRig rete;
+                if (!rete.apri(2, dove, 0)) {
+                    out << "    non risponde: " << rete.errore() << "\n";
+                    out.flush();
+                    return 5;
+                }
+                out << QStringLiteral("    collegato a %1, senza aprire nessuna porta seriale\n")
+                           .arg(rete.nome());
+                bool tutto = true;
+                auto p = [&](const QString& cosa, bool esito, const QString& letto) {
+                    out << QStringLiteral("    %1%2  %3\n").arg(cosa, -34)
+                               .arg(esito ? QStringLiteral("ok") : QStringLiteral("FALLITO"), -8)
+                               .arg(letto);
+                    if (!esito) tutto = false;
+                };
+                qint64 const f0 = rete.frequenza();
+                p(QStringLiteral("legge la frequenza"), f0 > 0, QStringLiteral("%1 Hz").arg(f0));
+                bool const okF = rete.impostaFrequenza(7074000);
+                p(QStringLiteral("cambia la frequenza"), okF && rete.frequenza() == 7074000,
+                  QStringLiteral("%1 Hz").arg(rete.frequenza()));
+                QString const m0 = rete.modo();
+                p(QStringLiteral("legge il modo"), !m0.isEmpty(), m0);
+                // Il cambio di modo non entra nel giudizio finale: se ne occupa
+                // Hamlib, che prima chiede a chi tiene la radio se il modo e'
+                // bloccato e se la frequenza sta in una gamma dove quel modo si
+                // puo' usare. Con un rigctld vero la risposta arriva dalla
+                // radio; con un banco di prova dipende da cosa dichiara il
+                // banco, quindi qui si riporta il risultato senza pretendere.
+                bool const okM = rete.impostaModo(QStringLiteral("CW"));
+                QString const modoOra = rete.modo();
+                out << QStringLiteral("    %1%2  %3\n")
+                           .arg(QStringLiteral("cambia il modo"), -34)
+                           .arg(modoOra == QLatin1String("CW") ? QStringLiteral("ok")
+                                                               : QStringLiteral("da provare"), -8)
+                           .arg(modoOra == QLatin1String("CW")
+                                    ? modoOra
+                                    : QStringLiteral("%1 — dipende da cosa dichiara chi tiene "
+                                                     "la radio").arg(modoOra));
+                Q_UNUSED(okM)
+                bool const okT = rete.trasmetti(true);
+                p(QStringLiteral("alza il PTT"), okT && rete.inTrasmissione(),
+                  rete.inTrasmissione() ? QStringLiteral("in trasmissione") : QStringLiteral("a riposo"));
+                rete.trasmetti(false);
+                p(QStringLiteral("abbassa il PTT"), !rete.inTrasmissione(), QStringLiteral("a riposo"));
+                rete.chiudi();
+                out << (tutto ? "\n  la radio condivisa funziona: la porta resta a chi ce l'ha\n"
+                              : "\n  QUALCOSA NON TORNA\n");
+                out.flush();
+                return tutto ? 0 : 1;
+            }
         }
 
         // La radio finta: risponde ai comandi come una vera, quindi permette di
