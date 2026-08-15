@@ -533,7 +533,7 @@ def page(titolo: str, corpo: str, utente=None, msg: str = "", errore: str = "",
                f'<a href="/">stazioni</a>' + nav)
         if utente["is_admin"]:
             nav += '<a href="/admin">amministrazione</a>'
-        nav += '<a href="/password">password</a>'
+        nav += '<a href="/password">il tuo accesso</a>'
         nav += ('<form method="post" action="/esci" class="inline">'
                 f'<input type="hidden" name="csrf" value="{e(csrf)}">'
                 '<button class="ghost small">esci</button></form>')
@@ -718,6 +718,8 @@ class Handler(BaseHTTPRequestHandler):
             if percorso == "/esci":
                 db.drop_web_session(conn, self._cookie(COOKIE))
                 return self._redirect("/accedi", [("Set-Cookie", f"{COOKIE}=; Max-Age=0; Path=/")])
+            if percorso == "/elimina-accesso":
+                return self.post_elimina_accesso(conn, utente, dati)
             if percorso == "/membro":
                 return self.post_membro(conn, utente, dati)
             if percorso == "/stato-utente":
@@ -918,6 +920,12 @@ stanza. Decolink aggiornato non ne ha bisogno, fa il login da sé.</p></div>"""
         host = self.headers.get("Host", "decolink.ft2.it")
         rel = ultima_release()
 
+        # Chi ha appena eliminato il proprio accesso arriva qui: senza una
+        # riga che lo dica, la prima pagina sembrerebbe solo un'uscita mal
+        # riuscita invece della conferma che la cosa e' andata a buon fine.
+        q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        avviso = ts.avviso("eliminato", lingua) if q.get("eliminato") else ""
+
         if rel and rel["file"]:
             def peso(f):
                 n = f["nome"].lower()
@@ -987,7 +995,7 @@ stanza. Decolink aggiornato non ne ha bisogno, fa il login da sé.</p></div>"""
             extra.append(("Set-Cookie",
                           f"{COOKIE_LINGUA}={lingua}; Max-Age=31536000; Path=/; "
                           f"SameSite=Lax"))
-        return self._send(200, page("Decolink", corpo, utente, banner=False,
+        return self._send(200, page("Decolink", corpo, utente, msg=avviso, banner=False,
                                     lingua=lingua, percorso="/"), extra=extra)
 
     def pagina_stazione(self, conn, utente, slug):
@@ -1470,10 +1478,63 @@ controllo del rig viaggiano su internet, da casa al telefono, dovunque sia.</p>
 <button style="width:100%">Cambia</button>
 </form>
 <p class="sub" style="margin-top:16px;font-size:13px">Cambiando la password, le
-<b>chiavi di stazione</b> già emesse continuano a valere: per annullare quelle,
-togliti e rimettiti il permesso sulla stazione.</p>
-</div>"""
-        return self._send(200, page("cambia password", corpo, utente, msg, errore))
+<b>chiavi di stazione</b> già emesse continuano a valere fino alla loro scadenza:
+sono firmate a parte e non dipendono da questa.</p>
+</div>
+
+{self._riquadro_elimina(conn, utente, csrf)}"""
+        return self._send(200, page("il tuo accesso", corpo, utente, msg, errore))
+
+    def _riquadro_elimina(self, conn, utente, csrf: str) -> str:
+        """Il riquadro per cancellare il proprio accesso.
+
+        Chi vuole andarsene deve poterlo fare da solo, senza chiedere il
+        permesso a un amministratore. Ma e' irreversibile, quindi si chiedono
+        due conferme di natura diversa: la password dice che sei tu, il
+        nominativo scritto a mano dice che l'hai voluto. Un pulsante solo lo si
+        preme per sbaglio; queste due cose no.
+        """
+        possedute = db.owned_stations(conn, utente["id"])
+        if possedute:
+            elenco = ", ".join(f'<b>{e(s["slug"])}</b>' for s in possedute)
+            return f"""
+<div class="card" style="max-width:460px;margin-top:20px;border-color:rgba(255,107,107,.35)">
+<h2 style="margin-top:0">Elimina il tuo accesso</h2>
+<p class="sub">Sei titolare di {elenco}. Finché lo sei non puoi cancellarti:
+resterebbe una stazione che nessuno può amministrare.</p>
+<p class="sub" style="font-size:13px">Passa la titolarità a un altro operatore
+dalla pagina della stazione, oppure chiedi a un amministratore di eliminarla.
+Poi torna qui.</p></div>"""
+
+        ultimo_admin = utente["is_admin"] and db.count_admins(conn) <= 1
+        if ultimo_admin:
+            return """
+<div class="card" style="max-width:460px;margin-top:20px;border-color:rgba(255,107,107,.35)">
+<h2 style="margin-top:0">Elimina il tuo accesso</h2>
+<p class="sub">Sei l'unico amministratore rimasto. Se te ne vai non resta
+nessuno ad approvare le registrazioni, e per rimediare bisognerebbe entrare nel
+server a mano.</p>
+<p class="sub" style="font-size:13px">Nomina prima un altro amministratore dal
+pannello, poi torna qui.</p></div>"""
+
+        return f"""
+<div class="card" style="max-width:460px;margin-top:20px;border-color:rgba(255,107,107,.35)">
+<h2 style="margin-top:0">Elimina il tuo accesso</h2>
+<p class="sub">Sparisce l'accesso, le abilitazioni sulle stazioni degli altri e
+le sessioni aperte. Se in questo momento sei collegato a una stazione, il relay
+chiude entro pochi secondi.</p>
+<p class="sub" style="font-size:13px">Restano i registri dei collegamenti e delle
+trasmissioni, col nominativo scritto dentro: servono a dire chi ha operato la
+radio, e cancellarli insieme all'accesso vorrebbe dire poter far sparire le
+proprie tracce. Non si torna indietro: per rientrare bisogna registrarsi di
+nuovo e farsi riapprovare.</p>
+<form method="post" action="/elimina-accesso">
+<input type="hidden" name="csrf" value="{e(csrf)}">
+<label>La tua password</label><input name="password" type="password" required>
+<label>Scrivi <b>{e(utente["callsign"])}</b> per confermare</label>
+<input name="conferma" required autocomplete="off" placeholder="{e(utente["callsign"])}">
+<button class="danger" style="width:100%">Elimina il mio accesso</button>
+</form></div>"""
 
     def post_password(self, conn, utente, dati):
         vecchia = str(dati.get("vecchia", ""))
@@ -1492,6 +1553,52 @@ togliti e rimettiti il permesso sulla stazione.</p>
         # sarebbe solo scortese.
         return self.pagina_password(conn, db.user_by_id(conn, utente["id"]),
                                     msg="Password cambiata.")
+
+    def post_elimina_accesso(self, conn, utente, dati):
+        """Cancellazione del proprio accesso, chiesta dall'interessato.
+
+        Tutti i controlli si rifanno qui e non ci si fida di quelli fatti
+        mostrando il modulo: fra il momento in cui la pagina e' stata aperta e
+        quello in cui arriva la POST possono essere passate ore, e nel frattempo
+        l'utente puo' essere diventato titolare di una stazione o essere rimasto
+        l'unico amministratore.
+        """
+        if not utente:
+            return self._redirect("/accedi")
+
+        if not db.check_password(str(dati.get("password", "")), utente["pwd"]):
+            return self.pagina_password(conn, utente, "La password non è corretta.")
+
+        # Confronto senza distinguere maiuscole e spazi ai lati: chi scrive
+        # " iu8lmc " intendeva il proprio nominativo, non un altro.
+        scritto = str(dati.get("conferma", "")).strip().upper()
+        if scritto != str(utente["callsign"]).strip().upper():
+            return self.pagina_password(
+                conn, utente, "Per confermare devi scrivere esattamente il tuo nominativo.")
+
+        if db.owned_stations(conn, utente["id"]):
+            return self.pagina_password(
+                conn, utente, "Sei titolare di una stazione: passa prima la titolarità.")
+
+        if utente["is_admin"] and db.count_admins(conn) <= 1:
+            return self.pagina_password(
+                conn, utente, "Sei l'unico amministratore: nominane un altro prima di andartene.")
+
+        try:
+            db.delete_user(conn, utente["id"])
+        except ValueError as ex:
+            return self.pagina_password(conn, utente, str(ex).capitalize() + ".")
+
+        # Nel registro resta scritto chi se n'e' andato e quando: e' un evento
+        # che non si puo' ricostruire da nessun'altra parte, visto che la riga
+        # dell'utente non c'e' piu'.
+        print(f"  {utente['callsign']} <{utente['email']}> ha eliminato il proprio accesso")
+
+        # Il cookie va spento qui: le sessioni sono sparite col database, ma un
+        # browser che continua a mandare un cookie morto vedrebbe la prima
+        # pagina come un anonimo qualunque senza capire perche'.
+        return self._redirect("/?eliminato=1", [
+            ("Set-Cookie", f"{COOKIE}=; Max-Age=0; Path=/")])
 
     def pagina_recupera(self, conn, errore="", msg=""):
         corpo = f"""

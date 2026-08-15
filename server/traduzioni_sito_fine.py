@@ -82,3 +82,34 @@ def lingua_del_browser(accept_language: str) -> str:
 def testi(codice: str) -> dict:
     """Il blocco di testi di una lingua, con ripiego se il codice non esiste."""
     return T.get(codice) or T[RIPIEGO]
+
+
+# Messaggi che compaiono sulla prima pagina in risposta a qualcosa che e'
+# appena successo. Stanno qui e non nei tre file dei testi perche' non fanno
+# parte della pagina: sono avvisi di passaggio.
+AVVISI = {
+    "eliminato": {
+        "it": "Il tuo accesso è stato eliminato.",
+        "en": "Your account has been deleted.",
+        "de": "Dein Zugang wurde gelöscht.",
+        "fr": "Votre accès a été supprimé.",
+        "es": "Tu acceso ha sido eliminado.",
+        "pt": "O seu acesso foi eliminado.",
+        "nl": "Je account is verwijderd.",
+        "ca": "El teu accés s'ha eliminat.",
+        "da": "Din adgang er blevet slettet.",
+        "hu": "A hozzáférésedet töröltük.",
+        "ro": "Accesul tău a fost șters.",
+        "lv": "Tava piekļuve ir dzēsta.",
+        "ru": "Ваш доступ удалён.",
+        "ja": "アカウントを削除しました。",
+        "zh": "你的账号已删除。",
+        "zh_TW": "你的帳號已刪除。",
+    },
+}
+
+
+def avviso(nome: str, lingua: str) -> str:
+    """Un avviso nella lingua di chi legge, o in inglese se quella manca."""
+    voce = AVVISI.get(nome) or {}
+    return voce.get(lingua) or voce.get(RIPIEGO, "")

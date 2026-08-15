@@ -251,6 +251,30 @@ def delete_user(conn, user_id: int) -> None:
     conn.commit()
 
 
+def owned_stations(conn, user_id: int):
+    """Le stazioni di cui l'utente e' titolare.
+
+    Serve prima di cancellare un accesso: chi ha una stazione a suo nome non
+    puo' semplicemente sparire, o resterebbe una radio che nessuno amministra.
+    Sono elencate perche' chi legge deve sapere quali, non solo quante.
+    """
+    return conn.execute(
+        "SELECT * FROM stations WHERE owner_id = ? ORDER BY slug", (user_id,)).fetchall()
+
+
+def count_admins(conn) -> int:
+    """Quanti amministratori attivi ci sono.
+
+    L'ultimo non puo' andarsene: senza amministratori nessuno approva piu' le
+    registrazioni ne' amministra le stazioni, e per rimediare bisognerebbe
+    entrare nel server a mano.
+    """
+    row = conn.execute(
+        "SELECT count(*) AS n FROM users WHERE is_admin = 1 AND status = ?",
+        (ST_ACTIVE,)).fetchone()
+    return int(row["n"]) if row else 0
+
+
 def list_users(conn, status: str | None = None):
     if status:
         return conn.execute("SELECT * FROM users WHERE status = ? ORDER BY created_at DESC",
