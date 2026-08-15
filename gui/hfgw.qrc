@@ -2,4 +2,23 @@
     <qresource prefix="/">
         <file>hfgw.ico</file>
     </qresource>
+    <!-- Le traduzioni stanno dentro l'eseguibile: cosi' non c'e' una cartella
+         che l'utente puo' perdere copiando il solo .exe da un'altra parte. -->
+    <qresource prefix="/traduzioni">
+        <file alias="ca.qm">traduzioni/decolink_ca.qm</file>
+        <file alias="da.qm">traduzioni/decolink_da.qm</file>
+        <file alias="de.qm">traduzioni/decolink_de.qm</file>
+        <file alias="en.qm">traduzioni/decolink_en.qm</file>
+        <file alias="es.qm">traduzioni/decolink_es.qm</file>
+        <file alias="fr.qm">traduzioni/decolink_fr.qm</file>
+        <file alias="hu.qm">traduzioni/decolink_hu.qm</file>
+        <file alias="ja.qm">traduzioni/decolink_ja.qm</file>
+        <file alias="lv.qm">traduzioni/decolink_lv.qm</file>
+        <file alias="nl.qm">traduzioni/decolink_nl.qm</file>
+        <file alias="pt.qm">traduzioni/decolink_pt.qm</file>
+        <file alias="ro.qm">traduzioni/decolink_ro.qm</file>
+        <file alias="ru.qm">traduzioni/decolink_ru.qm</file>
+        <file alias="zh.qm">traduzioni/decolink_zh.qm</file>
+        <file alias="zh_TW.qm">traduzioni/decolink_zh_TW.qm</file>
+    </qresource>
 </RCC>

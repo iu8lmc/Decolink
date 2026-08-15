@@ -1,0 +1,393 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""Traduzioni dell'interfaccia di Decolink.
+
+Le chiavi sono le stringhe italiane come stanno nel sorgente; per ogni lingua
+c'e' la traduzione. Da qui si generano i file .ts di Qt con genera.py.
+
+Perche' un dizionario e non i .ts a mano: i .ts sono XML prolissi e quindici
+copie dello stesso testo si disallineano al primo cambiamento. Qui una stringa
+sta su una riga e si vede a colpo d'occhio quali lingue mancano.
+
+Note di traduzione:
+  - i termini radioamatoriali restano quelli internazionali: CAT, PTT, CW, SSB,
+    relay, Opus, rig. Tradurli confonderebbe chi opera.
+  - "stazione" e' la stanza logica del gateway, non l'apparato: dove esiste una
+    parola locale per la postazione radio si e' preferita quella.
+  - i segnaposto %1 %2 restano dove sono e nell'ordine giusto per la lingua.
+"""
+
+LINGUE = ["en", "de", "fr", "es", "pt", "nl", "ca", "da",
+          "hu", "ro", "lv", "ru", "ja", "zh", "zh_TW"]
+
+# Stringhe che restano identiche in ogni lingua: numeri, sigle, standard.
+UGUALI = ["48 kHz", "24 kHz", "12 kHz", "20 ms", "40 ms", "60 ms", "115200",
+          "7", "8", "1", "2", "TCP", "PCM", "RTS/CTS", "XON/XOFF",
+          "Yaesu — comandi nativi", "Icom IC-7300 — CI-V nativo"]
+
+T = {
+ "Decolink — la radio su Decodium Mobile": {
+  "en": "Decolink — your radio on Decodium Mobile",
+  "de": "Decolink — das Funkgerät auf Decodium Mobile",
+  "fr": "Decolink — la radio sur Decodium Mobile",
+  "es": "Decolink — la radio en Decodium Mobile",
+  "pt": "Decolink — o rádio no Decodium Mobile",
+  "nl": "Decolink — de radio op Decodium Mobile",
+  "ca": "Decolink — la ràdio a Decodium Mobile",
+  "da": "Decolink — radioen på Decodium Mobile",
+  "hu": "Decolink — a rádió a Decodium Mobile-on",
+  "ro": "Decolink — radioul pe Decodium Mobile",
+  "lv": "Decolink — radio Decodium Mobile lietotnē",
+  "ru": "Decolink — радиостанция в Decodium Mobile",
+  "ja": "Decolink — Decodium Mobile で無線機を操作",
+  "zh": "Decolink — 在 Decodium Mobile 上使用电台",
+  "zh_TW": "Decolink — 在 Decodium Mobile 上使用電台",
+ },
+ "LAN diretta": {
+  "en": "Direct LAN", "de": "Direktes LAN", "fr": "LAN direct", "es": "LAN directa",
+  "pt": "LAN direta", "nl": "Direct LAN", "ca": "LAN directa", "da": "Direkte LAN",
+  "hu": "Közvetlen LAN", "ro": "LAN direct", "lv": "Tiešs LAN", "ru": "Прямая локальная сеть",
+  "ja": "LAN 直結", "zh": "局域网直连", "zh_TW": "區域網路直連",
+ },
+ "Relay + stazione": {
+  "en": "Relay + station", "de": "Relay + Station", "fr": "Relais + station",
+  "es": "Relé + estación", "pt": "Relé + estação", "nl": "Relay + station",
+  "ca": "Relé + estació", "da": "Relæ + station", "hu": "Relé + állomás",
+  "ro": "Releu + stație", "lv": "Relejs + stacija", "ru": "Ретранслятор + станция",
+  "ja": "リレー + 局", "zh": "中继 + 电台", "zh_TW": "中繼 + 電台",
+ },
+ "Il telefono chiama casa": {
+  "en": "The phone calls home", "de": "Das Telefon ruft zu Hause an",
+  "fr": "Le téléphone appelle la maison", "es": "El teléfono llama a casa",
+  "pt": "O telemóvel liga para casa", "nl": "De telefoon belt naar huis",
+  "ca": "El telèfon truca a casa", "da": "Telefonen ringer hjem",
+  "hu": "A telefon hívja az otthont", "ro": "Telefonul sună acasă",
+  "lv": "Telefons zvana uz mājām", "ru": "Телефон звонит домой",
+  "ja": "スマートフォンから接続", "zh": "手机主动回连", "zh_TW": "手機主動回連",
+ },
+ "IP del telefono, oppure host del relay": {
+  "en": "Phone IP address, or relay host", "de": "IP des Telefons oder Relay-Host",
+  "fr": "IP du téléphone, ou hôte du relais", "es": "IP del teléfono, o host del relé",
+  "pt": "IP do telemóvel, ou servidor do relé", "nl": "IP van de telefoon, of relay-host",
+  "ca": "IP del telèfon, o amfitrió del relé", "da": "Telefonens IP eller relæ-vært",
+  "hu": "A telefon IP-címe vagy a relé kiszolgálója", "ro": "IP-ul telefonului sau gazda releului",
+  "lv": "Telefona IP vai releja resursdators", "ru": "IP телефона или адрес ретранслятора",
+  "ja": "スマートフォンの IP、またはリレーのホスト",
+  "zh": "手机 IP 或中继服务器", "zh_TW": "手機 IP 或中繼伺服器",
+ },
+ "(accedi per scegliere la stazione)": {
+  "en": "(sign in to choose the station)", "de": "(anmelden, um die Station zu wählen)",
+  "fr": "(connectez-vous pour choisir la station)", "es": "(inicia sesión para elegir la estación)",
+  "pt": "(inicie sessão para escolher a estação)", "nl": "(meld je aan om het station te kiezen)",
+  "ca": "(inicia la sessió per triar l'estació)", "da": "(log ind for at vælge station)",
+  "hu": "(jelentkezzen be az állomás kiválasztásához)", "ro": "(autentifică-te pentru a alege stația)",
+  "lv": "(piesakieties, lai izvēlētos staciju)", "ru": "(войдите, чтобы выбрать станцию)",
+  "ja": "(ログインして局を選択)", "zh": "(登录后选择电台)", "zh_TW": "(登入後選擇電台)",
+ },
+ "Voce (Opus)": {
+  "en": "Voice (Opus)", "de": "Sprache (Opus)", "fr": "Voix (Opus)", "es": "Voz (Opus)",
+  "pt": "Voz (Opus)", "nl": "Spraak (Opus)", "ca": "Veu (Opus)", "da": "Tale (Opus)",
+  "hu": "Beszéd (Opus)", "ro": "Voce (Opus)", "lv": "Balss (Opus)", "ru": "Голос (Opus)",
+  "ja": "音声 (Opus)", "zh": "语音 (Opus)", "zh_TW": "語音 (Opus)",
+ },
+ "CW (Opus)": {
+  "en": "CW (Opus)", "de": "CW (Opus)", "fr": "CW (Opus)", "es": "CW (Opus)",
+  "pt": "CW (Opus)", "nl": "CW (Opus)", "ca": "CW (Opus)", "da": "CW (Opus)",
+  "hu": "CW (Opus)", "ro": "CW (Opus)", "lv": "CW (Opus)", "ru": "CW (Opus)",
+  "ja": "CW (Opus)", "zh": "CW (Opus)", "zh_TW": "CW (Opus)",
+ },
+ "Digitali senza perdite": {
+  "en": "Digital modes, lossless", "de": "Digimodes, verlustfrei",
+  "fr": "Modes numériques, sans perte", "es": "Modos digitales, sin pérdida",
+  "pt": "Modos digitais, sem perdas", "nl": "Digitale modes, verliesvrij",
+  "ca": "Modes digitals, sense pèrdua", "da": "Digitale modes, tabsfri",
+  "hu": "Digitális módok, veszteségmentes", "ro": "Moduri digitale, fără pierderi",
+  "lv": "Digitālie režīmi, bez zudumiem", "ru": "Цифровые виды, без потерь",
+  "ja": "デジタルモード (可逆圧縮)", "zh": "数字模式（无损）", "zh_TW": "數位模式（無損）",
+ },
+ "CW a tasto": {
+  "en": "CW keying only", "de": "Nur CW-Tastung", "fr": "Manipulation CW seule",
+  "es": "Solo manipulación CW", "pt": "Apenas manipulação CW", "nl": "Alleen CW-seinen",
+  "ca": "Només manipulació CW", "da": "Kun CW-nøgling", "hu": "Csak CW-billentyűzés",
+  "ro": "Doar manipulare CW", "lv": "Tikai CW manipulācija", "ru": "Только манипуляция CW",
+  "ja": "CW キーイングのみ", "zh": "仅 CW 键控", "zh_TW": "僅 CW 鍵控",
+ },
+ "Audio radio": {
+  "en": "Radio audio", "de": "Funkgerät-Audio", "fr": "Audio radio", "es": "Audio de la radio",
+  "pt": "Áudio do rádio", "nl": "Radio-audio", "ca": "Àudio de la ràdio", "da": "Radiolyd",
+  "hu": "Rádió hangja", "ro": "Audio radio", "lv": "Radio audio", "ru": "Звук с трансивера",
+  "ja": "無線機の音声", "zh": "电台音频", "zh_TW": "電台音訊",
+ },
+ "Modalità": {
+  "en": "Mode", "de": "Betriebsart", "fr": "Mode", "es": "Modo", "pt": "Modo",
+  "nl": "Modus", "ca": "Mode", "da": "Tilstand", "hu": "Üzemmód", "ro": "Mod",
+  "lv": "Režīms", "ru": "Режим", "ja": "接続方式", "zh": "连接方式", "zh_TW": "連線方式",
+ },
+ "Host": {
+  "en": "Host", "de": "Host", "fr": "Hôte", "es": "Host", "pt": "Servidor",
+  "nl": "Host", "ca": "Amfitrió", "da": "Vært", "hu": "Kiszolgáló", "ro": "Gazdă",
+  "lv": "Resursdators", "ru": "Адрес", "ja": "ホスト", "zh": "主机", "zh_TW": "主機",
+ },
+ "stazione": {
+  "en": "station", "de": "Station", "fr": "station", "es": "estación", "pt": "estação",
+  "nl": "station", "ca": "estació", "da": "station", "hu": "állomás", "ro": "stație",
+  "lv": "stacija", "ru": "станция", "ja": "局", "zh": "电台", "zh_TW": "電台",
+ },
+ "Porta": {
+  "en": "Port", "de": "Port", "fr": "Port", "es": "Puerto", "pt": "Porta",
+  "nl": "Poort", "ca": "Port", "da": "Port", "hu": "Port", "ro": "Port",
+  "lv": "Ports", "ru": "Порт", "ja": "ポート", "zh": "端口", "zh_TW": "連接埠",
+ },
+ "Profilo": {
+  "en": "Profile", "de": "Profil", "fr": "Profil", "es": "Perfil", "pt": "Perfil",
+  "nl": "Profiel", "ca": "Perfil", "da": "Profil", "hu": "Profil", "ro": "Profil",
+  "lv": "Profils", "ru": "Профиль", "ja": "プロファイル", "zh": "配置", "zh_TW": "設定檔",
+ },
+ "Campionamento": {
+  "en": "Sample rate", "de": "Abtastrate", "fr": "Échantillonnage", "es": "Muestreo",
+  "pt": "Amostragem", "nl": "Bemonstering", "ca": "Mostreig", "da": "Samplerate",
+  "hu": "Mintavételezés", "ro": "Eșantionare", "lv": "Iztveršanas frekvence",
+  "ru": "Частота дискретизации", "ja": "サンプリング", "zh": "采样率", "zh_TW": "取樣率",
+ },
+ "Pacchetti da": {
+  "en": "Packet length", "de": "Paketlänge", "fr": "Durée des paquets",
+  "es": "Duración del paquete", "pt": "Duração do pacote", "nl": "Pakketlengte",
+  "ca": "Durada del paquet", "da": "Pakkelængde", "hu": "Csomaghossz",
+  "ro": "Durata pachetului", "lv": "Pakešu garums", "ru": "Длина пакета",
+  "ja": "パケット長", "zh": "分组时长", "zh_TW": "封包時長",
+ },
+ "▸  Impostazioni avanzate": {
+  "en": "▸  Advanced settings", "de": "▸  Erweiterte Einstellungen",
+  "fr": "▸  Réglages avancés", "es": "▸  Ajustes avanzados",
+  "pt": "▸  Definições avançadas", "nl": "▸  Geavanceerde instellingen",
+  "ca": "▸  Configuració avançada", "da": "▸  Avancerede indstillinger",
+  "hu": "▸  Speciális beállítások", "ro": "▸  Setări avansate",
+  "lv": "▸  Papildu iestatījumi", "ru": "▸  Дополнительные настройки",
+  "ja": "▸  詳細設定", "zh": "▸  高级设置", "zh_TW": "▸  進階設定",
+ },
+ "▾  Impostazioni avanzate": {
+  "en": "▾  Advanced settings", "de": "▾  Erweiterte Einstellungen",
+  "fr": "▾  Réglages avancés", "es": "▾  Ajustes avanzados",
+  "pt": "▾  Definições avançadas", "nl": "▾  Geavanceerde instellingen",
+  "ca": "▾  Configuració avançada", "da": "▾  Avancerede indstillinger",
+  "hu": "▾  Speciális beállítások", "ro": "▾  Setări avansate",
+  "lv": "▾  Papildu iestatījumi", "ru": "▾  Дополнительные настройки",
+  "ja": "▾  詳細設定", "zh": "▾  高级设置", "zh_TW": "▾  進階設定",
+ },
+ "Avvia": {
+  "en": "Start", "de": "Start", "fr": "Démarrer", "es": "Iniciar", "pt": "Iniciar",
+  "nl": "Starten", "ca": "Inicia", "da": "Start", "hu": "Indítás", "ro": "Pornește",
+  "lv": "Sākt", "ru": "Пуск", "ja": "開始", "zh": "启动", "zh_TW": "啟動",
+ },
+ "Ferma": {
+  "en": "Stop", "de": "Stopp", "fr": "Arrêter", "es": "Detener", "pt": "Parar",
+  "nl": "Stoppen", "ca": "Atura", "da": "Stop", "hu": "Leállítás", "ro": "Oprește",
+  "lv": "Apturēt", "ru": "Стоп", "ja": "停止", "zh": "停止", "zh_TW": "停止",
+ },
+ "fermo": {
+  "en": "stopped", "de": "angehalten", "fr": "arrêté", "es": "detenido", "pt": "parado",
+  "nl": "gestopt", "ca": "aturat", "da": "stoppet", "hu": "leállítva", "ro": "oprit",
+  "lv": "apturēts", "ru": "остановлено", "ja": "停止中", "zh": "已停止", "zh_TW": "已停止",
+ },
+ "livello audio": {
+  "en": "audio level", "de": "Audiopegel", "fr": "niveau audio", "es": "nivel de audio",
+  "pt": "nível de áudio", "nl": "audioniveau", "ca": "nivell d'àudio", "da": "lydniveau",
+  "hu": "hangszint", "ro": "nivel audio", "lv": "audio līmenis", "ru": "уровень звука",
+  "ja": "音声レベル", "zh": "音频电平", "zh_TW": "音訊電平",
+ },
+ "COLLEGAMENTO": {
+  "en": "CONNECTION", "de": "VERBINDUNG", "fr": "CONNEXION", "es": "CONEXIÓN",
+  "pt": "LIGAÇÃO", "nl": "VERBINDING", "ca": "CONNEXIÓ", "da": "FORBINDELSE",
+  "hu": "KAPCSOLAT", "ro": "CONEXIUNE", "lv": "SAVIENOJUMS", "ru": "СОЕДИНЕНИЕ",
+  "ja": "接続", "zh": "连接", "zh_TW": "連線",
+ },
+ "RADIO E CAT": {
+  "en": "RADIO AND CAT", "de": "FUNKGERÄT UND CAT", "fr": "RADIO ET CAT",
+  "es": "RADIO Y CAT", "pt": "RÁDIO E CAT", "nl": "RADIO EN CAT",
+  "ca": "RÀDIO I CAT", "da": "RADIO OG CAT", "hu": "RÁDIÓ ÉS CAT",
+  "ro": "RADIO ȘI CAT", "lv": "RADIO UN CAT", "ru": "ТРАНСИВЕР И CAT",
+  "ja": "無線機と CAT", "zh": "电台与 CAT", "zh_TW": "電台與 CAT",
+ },
+ "Servi il CAT al telefono": {
+  "en": "Serve CAT to the phone", "de": "CAT für das Telefon bereitstellen",
+  "fr": "Fournir le CAT au téléphone", "es": "Servir el CAT al teléfono",
+  "pt": "Fornecer o CAT ao telemóvel", "nl": "CAT aanbieden aan de telefoon",
+  "ca": "Serveix el CAT al telèfon", "da": "Stil CAT til rådighed for telefonen",
+  "hu": "CAT szolgáltatása a telefonnak", "ro": "Oferă CAT telefonului",
+  "lv": "Nodrošināt CAT telefonam", "ru": "Отдавать CAT телефону",
+  "ja": "CAT をスマートフォンに提供", "zh": "向手机提供 CAT", "zh_TW": "向手機提供 CAT",
+ },
+ "CAT spento": {
+  "en": "CAT off", "de": "CAT aus", "fr": "CAT désactivé", "es": "CAT apagado",
+  "pt": "CAT desligado", "nl": "CAT uit", "ca": "CAT apagat", "da": "CAT slukket",
+  "hu": "CAT kikapcsolva", "ro": "CAT oprit", "lv": "CAT izslēgts", "ru": "CAT выключен",
+  "ja": "CAT オフ", "zh": "CAT 已关闭", "zh_TW": "CAT 已關閉",
+ },
+ "(nessuna: non trasmettere)": {
+  "en": "(none: do not transmit)", "de": "(keine: nicht senden)",
+  "fr": "(aucune : ne pas émettre)", "es": "(ninguna: no transmitir)",
+  "pt": "(nenhuma: não transmitir)", "nl": "(geen: niet zenden)",
+  "ca": "(cap: no transmetis)", "da": "(ingen: send ikke)",
+  "hu": "(nincs: ne adjon)", "ro": "(niciuna: nu transmite)",
+  "lv": "(nav: nepārraidīt)", "ru": "(нет: не передавать)",
+  "ja": "(なし: 送信しない)", "zh": "（无：不发射）", "zh_TW": "（無：不發射）",
+ },
+ "Radio / protocollo": {
+  "en": "Radio / protocol", "de": "Funkgerät / Protokoll", "fr": "Radio / protocole",
+  "es": "Radio / protocolo", "pt": "Rádio / protocolo", "nl": "Radio / protocol",
+  "ca": "Ràdio / protocol", "da": "Radio / protokol", "hu": "Rádió / protokoll",
+  "ro": "Radio / protocol", "lv": "Radio / protokols", "ru": "Трансивер / протокол",
+  "ja": "無線機 / プロトコル", "zh": "电台 / 协议", "zh_TW": "電台 / 協定",
+ },
+ "Indirizzo CI-V": {
+  "en": "CI-V address", "de": "CI-V-Adresse", "fr": "Adresse CI-V", "es": "Dirección CI-V",
+  "pt": "Endereço CI-V", "nl": "CI-V-adres", "ca": "Adreça CI-V", "da": "CI-V-adresse",
+  "hu": "CI-V cím", "ro": "Adresă CI-V", "lv": "CI-V adrese", "ru": "Адрес CI-V",
+  "ja": "CI-V アドレス", "zh": "CI-V 地址", "zh_TW": "CI-V 位址",
+ },
+ "Audio al rig": {
+  "en": "Audio to the rig", "de": "Audio zum Funkgerät", "fr": "Audio vers la radio",
+  "es": "Audio hacia la radio", "pt": "Áudio para o rádio", "nl": "Audio naar de set",
+  "ca": "Àudio cap a la ràdio", "da": "Lyd til radioen", "hu": "Hang a rádió felé",
+  "ro": "Audio către radio", "lv": "Audio uz radio", "ru": "Звук на трансивер",
+  "ja": "無線機への音声", "zh": "送往电台的音频", "zh_TW": "送往電台的音訊",
+ },
+ "Porta rig": {
+  "en": "Rig port", "de": "Funkgerät-Port", "fr": "Port de la radio",
+  "es": "Puerto de la radio", "pt": "Porta do rádio", "nl": "Poort van de set",
+  "ca": "Port de la ràdio", "da": "Radioens port", "hu": "Rádió portja",
+  "ro": "Portul radioului", "lv": "Radio ports", "ru": "Порт трансивера",
+  "ja": "無線機のポート", "zh": "电台端口", "zh_TW": "電台連接埠",
+ },
+ "Velocità": {
+  "en": "Speed", "de": "Geschwindigkeit", "fr": "Vitesse", "es": "Velocidad",
+  "pt": "Velocidade", "nl": "Snelheid", "ca": "Velocitat", "da": "Hastighed",
+  "hu": "Sebesség", "ro": "Viteză", "lv": "Ātrums", "ru": "Скорость",
+  "ja": "通信速度", "zh": "波特率", "zh_TW": "鮑率",
+ },
+ "dati": {
+  "en": "data", "de": "Daten", "fr": "données", "es": "datos", "pt": "dados",
+  "nl": "data", "ca": "dades", "da": "data", "hu": "adat", "ro": "date",
+  "lv": "dati", "ru": "данные", "ja": "データ", "zh": "数据位", "zh_TW": "資料位元",
+ },
+ "parità": {
+  "en": "parity", "de": "Parität", "fr": "parité", "es": "paridad", "pt": "paridade",
+  "nl": "pariteit", "ca": "paritat", "da": "paritet", "hu": "paritás", "ro": "paritate",
+  "lv": "paritāte", "ru": "чётность", "ja": "パリティ", "zh": "校验", "zh_TW": "同位檢查",
+ },
+ "stop": {
+  "en": "stop", "de": "Stopp", "fr": "stop", "es": "parada", "pt": "paragem",
+  "nl": "stop", "ca": "parada", "da": "stop", "hu": "stop", "ro": "stop",
+  "lv": "stop", "ru": "стоп", "ja": "ストップ", "zh": "停止位", "zh_TW": "停止位元",
+ },
+ "Seriale": {
+  "en": "Serial", "de": "Seriell", "fr": "Série", "es": "Serie", "pt": "Série",
+  "nl": "Serieel", "ca": "Sèrie", "da": "Seriel", "hu": "Soros", "ro": "Serial",
+  "lv": "Seriālais", "ru": "Последовательный порт", "ja": "シリアル",
+  "zh": "串口", "zh_TW": "序列埠",
+ },
+ "Handshake": {
+  "en": "Handshake", "de": "Handshake", "fr": "Contrôle de flux",
+  "es": "Control de flujo", "pt": "Controlo de fluxo", "nl": "Handshake",
+  "ca": "Control de flux", "da": "Handshake", "hu": "Kézfogás",
+  "ro": "Control flux", "lv": "Rokasspiediens", "ru": "Управление потоком",
+  "ja": "フロー制御", "zh": "流控", "zh_TW": "流量控制",
+ },
+ "nessuna": {
+  "en": "none", "de": "keine", "fr": "aucune", "es": "ninguna", "pt": "nenhuma",
+  "nl": "geen", "ca": "cap", "da": "ingen", "hu": "nincs", "ro": "niciuna",
+  "lv": "nav", "ru": "нет", "ja": "なし", "zh": "无", "zh_TW": "無",
+ },
+ "nessuno": {
+  "en": "none", "de": "keiner", "fr": "aucun", "es": "ninguno", "pt": "nenhum",
+  "nl": "geen", "ca": "cap", "da": "ingen", "hu": "nincs", "ro": "niciunul",
+  "lv": "nav", "ru": "нет", "ja": "なし", "zh": "无", "zh_TW": "無",
+ },
+ "pari": {
+  "en": "even", "de": "gerade", "fr": "paire", "es": "par", "pt": "par",
+  "nl": "even", "ca": "parell", "da": "lige", "hu": "páros", "ro": "pară",
+  "lv": "pāra", "ru": "чётная", "ja": "偶数", "zh": "偶", "zh_TW": "偶",
+ },
+ "dispari": {
+  "en": "odd", "de": "ungerade", "fr": "impaire", "es": "impar", "pt": "ímpar",
+  "nl": "oneven", "ca": "senar", "da": "ulige", "hu": "páratlan", "ro": "impară",
+  "lv": "nepāra", "ru": "нечётная", "ja": "奇数", "zh": "奇", "zh_TW": "奇",
+ },
+ "host:porta del programma che tiene la radio": {
+  "en": "host:port of the program holding the radio",
+  "de": "Host:Port des Programms, das das Funkgerät hält",
+  "fr": "hôte:port du programme qui détient la radio",
+  "es": "host:puerto del programa que tiene la radio",
+  "pt": "servidor:porta do programa que detém o rádio",
+  "nl": "host:poort van het programma dat de set bezet",
+  "ca": "amfitrió:port del programa que té la ràdio",
+  "da": "vært:port for programmet der har radioen",
+  "hu": "a rádiót birtokló program kiszolgálója:portja",
+  "ro": "gazdă:port al programului care deține radioul",
+  "lv": "resursdators:ports programmai, kas tur radio",
+  "ru": "адрес:порт программы, которая держит трансивер",
+  "ja": "無線機を保持しているプログラムの ホスト:ポート",
+  "zh": "占用电台的程序的 主机:端口", "zh_TW": "占用電台的程式的 主機:連接埠",
+ },
+ "server di accesso (es. decolink.ft2.it)": {
+  "en": "sign-in server (e.g. decolink.ft2.it)",
+  "de": "Anmeldeserver (z. B. decolink.ft2.it)",
+  "fr": "serveur de connexion (ex. decolink.ft2.it)",
+  "es": "servidor de acceso (p. ej. decolink.ft2.it)",
+  "pt": "servidor de acesso (ex.: decolink.ft2.it)",
+  "nl": "aanmeldserver (bijv. decolink.ft2.it)",
+  "ca": "servidor d'accés (p. ex. decolink.ft2.it)",
+  "da": "loginserver (f.eks. decolink.ft2.it)",
+  "hu": "bejelentkezési kiszolgáló (pl. decolink.ft2.it)",
+  "ro": "server de autentificare (ex. decolink.ft2.it)",
+  "lv": "pieteikšanās serveris (piem., decolink.ft2.it)",
+  "ru": "сервер входа (например, decolink.ft2.it)",
+  "ja": "ログインサーバー (例: decolink.ft2.it)",
+  "zh": "登录服务器（例如 decolink.ft2.it）", "zh_TW": "登入伺服器（例如 decolink.ft2.it）",
+ },
+ "la tua email": {
+  "en": "your email", "de": "deine E-Mail", "fr": "votre e-mail", "es": "tu correo",
+  "pt": "o teu email", "nl": "je e-mail", "ca": "el teu correu", "da": "din e-mail",
+  "hu": "az e-mail-címed", "ro": "emailul tău", "lv": "tava e-pasta adrese",
+  "ru": "ваша почта", "ja": "メールアドレス", "zh": "你的邮箱", "zh_TW": "你的電子郵件",
+ },
+ "password": {
+  "en": "password", "de": "Passwort", "fr": "mot de passe", "es": "contraseña",
+  "pt": "palavra-passe", "nl": "wachtwoord", "ca": "contrasenya", "da": "adgangskode",
+  "hu": "jelszó", "ro": "parolă", "lv": "parole", "ru": "пароль",
+  "ja": "パスワード", "zh": "密码", "zh_TW": "密碼",
+ },
+ "ricorda la password": {
+  "en": "remember the password", "de": "Passwort merken",
+  "fr": "retenir le mot de passe", "es": "recordar la contraseña",
+  "pt": "memorizar a palavra-passe", "nl": "wachtwoord onthouden",
+  "ca": "recorda la contrasenya", "da": "husk adgangskoden",
+  "hu": "jelszó megjegyzése", "ro": "reține parola",
+  "lv": "atcerēties paroli", "ru": "запомнить пароль",
+  "ja": "パスワードを保存", "zh": "记住密码", "zh_TW": "記住密碼",
+ },
+ "Accedi": {
+  "en": "Sign in", "de": "Anmelden", "fr": "Se connecter", "es": "Acceder",
+  "pt": "Entrar", "nl": "Aanmelden", "ca": "Accedeix", "da": "Log ind",
+  "hu": "Belépés", "ro": "Autentificare", "lv": "Pieteikties", "ru": "Войти",
+  "ja": "ログイン", "zh": "登录", "zh_TW": "登入",
+ },
+ "non collegato": {
+  "en": "not connected", "de": "nicht verbunden", "fr": "non connecté",
+  "es": "sin conexión", "pt": "sem ligação", "nl": "niet verbonden",
+  "ca": "sense connexió", "da": "ikke forbundet", "hu": "nincs kapcsolat",
+  "ro": "neconectat", "lv": "nav savienots", "ru": "не подключено",
+  "ja": "未接続", "zh": "未连接", "zh_TW": "未連線",
+ },
+ "Server": {
+  "en": "Server", "de": "Server", "fr": "Serveur", "es": "Servidor", "pt": "Servidor",
+  "nl": "Server", "ca": "Servidor", "da": "Server", "hu": "Kiszolgáló", "ro": "Server",
+  "lv": "Serveris", "ru": "Сервер", "ja": "サーバー", "zh": "服务器", "zh_TW": "伺服器",
+ },
+ "Accesso": {
+  "en": "Sign-in", "de": "Anmeldung", "fr": "Connexion", "es": "Acceso",
+  "pt": "Acesso", "nl": "Aanmelding", "ca": "Accés", "da": "Login",
+  "hu": "Belépés", "ro": "Autentificare", "lv": "Pieteikšanās", "ru": "Вход",
+  "ja": "ログイン", "zh": "登录", "zh_TW": "登入",
+ },
+}

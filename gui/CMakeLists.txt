@@ -75,6 +75,29 @@ else()
                     "    pacman -S mingw-w64-x86_64-codec2")
 endif()
 
+# Traduzioni: i .qm si rigenerano dai .ts a ogni build, cosi' chi tocca una
+# traduzione non deve ricordarsi di lanciare lrelease a mano. I .qm restano
+# anche nel repository, perche' senza lrelease la compilazione deve funzionare
+# lo stesso: le risorse li pretendono.
+set(DECOLINK_LINGUE ca da de en es fr hu ja lv nl pt ro ru zh zh_TW)
+find_program(LRELEASE NAMES lrelease lrelease-qt6
+             HINTS ${QT6_INSTALL_PREFIX}/bin ${Qt6_DIR}/../../../bin)
+if(LRELEASE)
+    set(QM_FILES)
+    foreach(L ${DECOLINK_LINGUE})
+        set(TS ${CMAKE_CURRENT_SOURCE_DIR}/traduzioni/decolink_${L}.ts)
+        set(QM ${CMAKE_CURRENT_SOURCE_DIR}/traduzioni/decolink_${L}.qm)
+        add_custom_command(OUTPUT ${QM}
+            COMMAND ${LRELEASE} -silent ${TS} -qm ${QM}
+            DEPENDS ${TS} COMMENT "traduzione ${L}" VERBATIM)
+        list(APPEND QM_FILES ${QM})
+    endforeach()
+    add_custom_target(traduzioni DEPENDS ${QM_FILES})
+    message(STATUS "lrelease: ${LRELEASE} (${DECOLINK_LINGUE})")
+else()
+    message(STATUS "lrelease non trovato: si usano i .qm gia' presenti")
+endif()
+
 # icona dell'eseguibile (Esplora risorse / barra applicazioni)
 if(WIN32)
     enable_language(RC)
@@ -82,6 +105,10 @@ if(WIN32)
 endif()
 
 qt_add_executable(decolink WIN32 main.cpp hfgw.qrc ${APP_ICON_RC})
+if(LRELEASE)
+    # I .qm devono esistere prima che rcc impacchetti le risorse
+    add_dependencies(decolink traduzioni)
+endif()
 target_include_directories(decolink PRIVATE ${OPUS_INCLUDE_DIRS})
 target_link_directories(decolink PRIVATE ${OPUS_LIBRARY_DIRS})
 target_link_libraries(decolink PRIVATE Qt6::Widgets Qt6::Multimedia Qt6::Network Qt6::SerialPort

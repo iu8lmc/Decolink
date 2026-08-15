@@ -56,12 +56,15 @@
 
 #include <QElapsedTimer>
 #include <QMutex>
+#include <QMessageBox>
+#include <QProcess>
 
 #include "cwkey.h"
 #ifdef DECOLINK_CON_HAMLIB
 #include "hamlibrig.h"
 #endif
 #include "dlproto.h"
+#include "lingua.h"
 #include "lossless.h"
 #include "opusvoce.h"
 #include "resample.h"
@@ -156,6 +159,12 @@ QSpinBox::up-arrow:hover, QSpinBox::down-arrow:hover { border-bottom-color:#00e5
     border-top-color:#00e5ff }
 QComboBox QAbstractItemView { background:#0b1018; border:1px solid #243b63;
     selection-background-color:#16213e; outline:none; padding:3px }
+
+/* Il selettore della lingua sta in alto accanto al logo: piccolo e senza
+   cornice, perche' non e' un'impostazione da toccare tutti i giorni. */
+QComboBox#lingua { background:transparent; border:1px solid transparent;
+    color:#5d7ba3; font-size:11px; padding:2px 6px; min-height:0 }
+QComboBox#lingua:hover { border-color:#243b63; color:#8fb3d9 }
 
 QPushButton { background:#16213e; border:1px solid #243b63; border-radius:7px;
               padding:7px 15px; color:#cfe0f0 }
@@ -545,28 +554,28 @@ class Client : public QWidget
 public:
     Client()
     {
-        setWindowTitle(QStringLiteral("Decolink — la radio su Decodium Mobile"));
+        setWindowTitle(tr("Decolink — la radio su Decodium Mobile"));
 
         m_device = new QComboBox;
         for (QAudioDevice const& d : QMediaDevices::audioInputs())
             m_device->addItem(d.description());
 
         m_mode = new QComboBox;
-        m_mode->addItem(QStringLiteral("LAN diretta"));
-        m_mode->addItem(QStringLiteral("Relay + stazione"));
-        m_mode->addItem(QStringLiteral("Il telefono chiama casa"));
-        m_mode->setToolTip(QStringLiteral(
+        m_mode->addItem(tr("LAN diretta"));
+        m_mode->addItem(tr("Relay + stazione"));
+        m_mode->addItem(tr("Il telefono chiama casa"));
+        m_mode->setToolTip(tr(
             "LAN diretta — il telefono è sulla stessa rete: gli si manda l'audio all'indirizzo\n"
             "Relay + stazione — funziona ovunque, anche su dati mobili: PC e telefono\n"
             "   escono entrambi verso il relay, quindi non c'è nessun router da configurare\n"
             "Il telefono chiama casa — porta inoltrata sul router e nome DynDNS"));
 
         m_host = new QLineEdit;
-        m_host->setPlaceholderText(QStringLiteral("IP del telefono, oppure host del relay"));
+        m_host->setPlaceholderText(tr("IP del telefono, oppure host del relay"));
         m_port = new QSpinBox; m_port->setRange(1, 65535); m_port->setValue(5555);
         m_station = new QComboBox;
         m_station->setEnabled(false);
-        m_station->addItem(QStringLiteral("(accedi per scegliere la stazione)"));
+        m_station->addItem(tr("(accedi per scegliere la stazione)"));
 
         // Profilo audio: quanta banda occupare. Nell'elenco ci sono solo i
         // profili che funzionano davvero — i digitali senza perdite e
@@ -590,10 +599,10 @@ public:
         // lunghe dentro una tendina allargano la finestra di duecento pixel per
         // un testo che si legge una volta sola.
         m_srate = new QComboBox;
-        m_srate->addItem(QStringLiteral("48 kHz"), 48000);
-        m_srate->addItem(QStringLiteral("24 kHz"), 24000);
-        m_srate->addItem(QStringLiteral("12 kHz"), 12000);
-        m_srate->setToolTip(QStringLiteral(
+        m_srate->addItem(tr("48 kHz"), 48000);
+        m_srate->addItem(tr("24 kHz"), 24000);
+        m_srate->addItem(tr("12 kHz"), 12000);
+        m_srate->setToolTip(tr(
             "Quanti campioni al secondo mandare.\n"
             "48 kHz — 808 kbit/s, 364 MB l'ora: sicuro con qualunque programma\n"
             "24 kHz — 424 kbit/s, 191 MB l'ora\n"
@@ -603,12 +612,12 @@ public:
             "dichiarata: torna a 48 kHz."));
 
         m_profile = new QComboBox;
-        m_profile->addItem(QStringLiteral("PCM"), dl::PPcm48);
-        m_profile->addItem(QStringLiteral("Voce (Opus)"), dl::PVoce);
-        m_profile->addItem(QStringLiteral("CW (Opus)"), dl::PCw);
-        m_profile->addItem(QStringLiteral("Digitali senza perdite"), dl::PDigi);
-        m_profile->addItem(QStringLiteral("CW a tasto"), dl::PCwKey);
-        m_profile->setToolTip(QStringLiteral(
+        m_profile->addItem(tr("PCM"), dl::PPcm48);
+        m_profile->addItem(tr("Voce (Opus)"), dl::PVoce);
+        m_profile->addItem(tr("CW (Opus)"), dl::PCw);
+        m_profile->addItem(tr("Digitali senza perdite"), dl::PDigi);
+        m_profile->addItem(tr("CW a tasto"), dl::PCwKey);
+        m_profile->setToolTip(tr(
             "PCM — compatibile con tutti, nessuna compressione\n"
             "Voce — Opus a 32 kbit/s: serve un programma aggiornato dall'altra parte\n"
             "CW — Opus a banda stretta, 20 kbit/s\n"
@@ -619,11 +628,11 @@ public:
         // Quanti frame per pacchetto. Piu' se ne raggruppano, meno volte si paga
         // l'involucro IP/UDP, ma piu' latenza si aggiunge.
         m_aggr = new QComboBox;
-        m_aggr->addItem(QStringLiteral("20 ms"), 1);
-        m_aggr->addItem(QStringLiteral("40 ms"), 2);
-        m_aggr->addItem(QStringLiteral("60 ms"), 3);
+        m_aggr->addItem(tr("20 ms"), 1);
+        m_aggr->addItem(tr("40 ms"), 2);
+        m_aggr->addItem(tr("60 ms"), 3);
         m_aggr->setCurrentIndex(1);
-        m_aggr->setToolTip(QStringLiteral(
+        m_aggr->setToolTip(tr(
             "Quanti frame mettere in un pacchetto: meno pacchetti, meno\n"
             "intestazioni da pagare, ma un po' più di ritardo.\n"
             "20 ms — latenza minima\n"
@@ -636,20 +645,20 @@ public:
         form->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
         form->setHorizontalSpacing(10);
         form->setVerticalSpacing(7);
-        form->addRow(QStringLiteral("Audio radio"), m_device);
-        form->addRow(QStringLiteral("Modalità"), m_mode);
-        form->addRow(QStringLiteral("Host"), m_host);
+        form->addRow(tr("Audio radio"), m_device);
+        form->addRow(tr("Modalità"), m_mode);
+        form->addRow(tr("Host"), m_host);
         // Porta e stazione stanno sulla stessa riga: la porta e' un numero
         // corto e da sola sprecava un'intera riga di altezza.
         auto* rigaPorta = new QHBoxLayout;
         rigaPorta->setSpacing(8);
         m_port->setFixedWidth(88);          // cinque cifre e la freccia, non di piu'
         rigaPorta->addWidget(m_port);
-        auto* etSta = new QLabel(QStringLiteral("stazione"));
+        auto* etSta = new QLabel(tr("stazione"));
         etSta->setObjectName(QStringLiteral("minuscolo"));
         rigaPorta->addWidget(etSta);
         rigaPorta->addWidget(m_station, 1);
-        form->addRow(QStringLiteral("Porta"), rigaPorta);
+        form->addRow(tr("Porta"), rigaPorta);
 
         // Le impostazioni dell'audio si toccano una volta e poi si dimenticano:
         // stanno dietro un pulsante, e la finestra parte corta.
@@ -657,36 +666,36 @@ public:
         avanForm->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
         avanForm->setHorizontalSpacing(10);
         avanForm->setVerticalSpacing(7);
-        avanForm->addRow(QStringLiteral("Profilo"), m_profile);
-        avanForm->addRow(QStringLiteral("Campionamento"), m_srate);
-        avanForm->addRow(QStringLiteral("Pacchetti da"), m_aggr);
+        avanForm->addRow(tr("Profilo"), m_profile);
+        avanForm->addRow(tr("Campionamento"), m_srate);
+        avanForm->addRow(tr("Pacchetti da"), m_aggr);
         m_avanForm = avanForm;      // le righe della seriale si aggiungono dopo
         m_avanzate = new QWidget;
         m_avanzate->setLayout(avanForm);
         m_avanzate->setVisible(false);
 
-        m_mostraAvan = new QPushButton(QStringLiteral("▸  Impostazioni avanzate"));
+        m_mostraAvan = new QPushButton(tr("▸  Impostazioni avanzate"));
         m_mostraAvan->setCheckable(true);
         m_mostraAvan->setObjectName(QStringLiteral("piatto"));
         connect(m_mostraAvan, &QPushButton::toggled, this, [this](bool on) {
             m_avanzate->setVisible(on);
-            m_mostraAvan->setText(on ? QStringLiteral("▾  Impostazioni avanzate")
-                                     : QStringLiteral("▸  Impostazioni avanzate"));
+            m_mostraAvan->setText(on ? tr("▾  Impostazioni avanzate")
+                                     : tr("▸  Impostazioni avanzate"));
             // La finestra si stringe da sola quando si richiude: senza questo
             // resterebbe alta come quando era aperta.
             QTimer::singleShot(0, this, [this] { resize(width(), sizeHint().height()); });
         });
 
-        m_start = new QPushButton(QStringLiteral("Avvia"));
+        m_start = new QPushButton(tr("Avvia"));
         m_start->setObjectName(QStringLiteral("principale"));
         m_start->setMinimumHeight(38);
         m_start->setMinimumWidth(120);
         m_level = new QProgressBar; m_level->setRange(0, 100); m_level->setTextVisible(false);
         m_level->setFixedHeight(8);
-        m_status = new QLabel(QStringLiteral("fermo"));
+        m_status = new QLabel(tr("fermo"));
         m_status->setObjectName(QStringLiteral("stato"));
         m_status->setWordWrap(true);
-        m_stats  = new QLabel(QStringLiteral("—"));
+        m_stats  = new QLabel(tr("—"));
         m_stats->setObjectName(QStringLiteral("numeri"));
         m_stats->setWordWrap(true);
 
@@ -696,8 +705,8 @@ public:
         // tutti i modelli che conosce Hamlib, che sono il motivo per cui il
         // programma ora parla con quasi tutte le radio invece che con due marche.
         m_catModel = new QComboBox;
-        m_catModel->addItem(QStringLiteral("Yaesu — comandi nativi"), -1);
-        m_catModel->addItem(QStringLiteral("Icom IC-7300 — CI-V nativo"), -2);
+        m_catModel->addItem(tr("Yaesu — comandi nativi"), -1);
+        m_catModel->addItem(tr("Icom IC-7300 — CI-V nativo"), -2);
 #ifdef DECOLINK_CON_HAMLIB
         {
             QList<dl::ModelloRig> const elenco = dl::HamlibRig::modelli();
@@ -713,7 +722,7 @@ public:
                 m_catModel->addItem(voce, r.numero);
             }
             m_catModel->setToolTip(
-                QStringLiteral("Hamlib %1 — %2 modelli riconosciuti.\n"
+                tr("Hamlib %1 — %2 modelli riconosciuti.\n"
                                "I primi due sono i protocolli scritti dentro Decolink;\n"
                                "gli altri passano da Hamlib, la stessa libreria che usa\n"
                                "Decodium sul desktop.")
@@ -722,9 +731,9 @@ public:
 #endif
         m_catModel->setCurrentIndex(1);
         m_catRete = new QLineEdit(QStringLiteral("localhost:4532"));
-        m_catRete->setPlaceholderText(QStringLiteral("host:porta del programma che tiene la radio"));
+        m_catRete->setPlaceholderText(tr("host:porta del programma che tiene la radio"));
         m_catRete->setToolTip(
-            QStringLiteral("Indirizzo del programma che tiene la porta seriale.\n"
+            tr("Indirizzo del programma che tiene la porta seriale.\n"
                            "rigctld e i programmi compatibili: localhost:4532\n"
                            "FLRig: localhost:12345\n\n"
                            "Serve quando la COM è già occupata da un altro programma:\n"
@@ -737,29 +746,29 @@ public:
             m_catPort->addItem(pi.portName() + "  " + pi.description());
         m_catBaud = new QComboBox;
         for (int b : {4800, 9600, 19200, 38400, 57600, 115200}) m_catBaud->addItem(QString::number(b));
-        m_catBaud->setCurrentText(QStringLiteral("115200"));
+        m_catBaud->setCurrentText(tr("115200"));
         m_catDataBits = new QComboBox;
-        m_catDataBits->addItem(QStringLiteral("7"), int(QSerialPort::Data7));
-        m_catDataBits->addItem(QStringLiteral("8"), int(QSerialPort::Data8));
-        m_catDataBits->setCurrentText(QStringLiteral("8"));
+        m_catDataBits->addItem(tr("7"), int(QSerialPort::Data7));
+        m_catDataBits->addItem(tr("8"), int(QSerialPort::Data8));
+        m_catDataBits->setCurrentText(tr("8"));
         m_catParity = new QComboBox;
-        m_catParity->addItem(QStringLiteral("nessuna"), int(QSerialPort::NoParity));
-        m_catParity->addItem(QStringLiteral("pari"), int(QSerialPort::EvenParity));
-        m_catParity->addItem(QStringLiteral("dispari"), int(QSerialPort::OddParity));
+        m_catParity->addItem(tr("nessuna"), int(QSerialPort::NoParity));
+        m_catParity->addItem(tr("pari"), int(QSerialPort::EvenParity));
+        m_catParity->addItem(tr("dispari"), int(QSerialPort::OddParity));
         m_catStopBits = new QComboBox;
-        m_catStopBits->addItem(QStringLiteral("1"), int(QSerialPort::OneStop));
-        m_catStopBits->addItem(QStringLiteral("2"), int(QSerialPort::TwoStop));
+        m_catStopBits->addItem(tr("1"), int(QSerialPort::OneStop));
+        m_catStopBits->addItem(tr("2"), int(QSerialPort::TwoStop));
         m_catStopBits->setCurrentIndex(1);
         m_catFlow = new QComboBox;
-        m_catFlow->addItem(QStringLiteral("nessuno"), int(QSerialPort::NoFlowControl));
-        m_catFlow->addItem(QStringLiteral("RTS/CTS"), int(QSerialPort::HardwareControl));
-        m_catFlow->addItem(QStringLiteral("XON/XOFF"), int(QSerialPort::SoftwareControl));
+        m_catFlow->addItem(tr("nessuno"), int(QSerialPort::NoFlowControl));
+        m_catFlow->addItem(tr("RTS/CTS"), int(QSerialPort::HardwareControl));
+        m_catFlow->addItem(tr("XON/XOFF"), int(QSerialPort::SoftwareControl));
         m_catTcpPort = new QSpinBox; m_catTcpPort->setRange(1, 65535); m_catTcpPort->setValue(4532);
-        m_catOn = new QCheckBox(QStringLiteral("Servi il CAT al telefono"));
-        m_catState = new QLabel(QStringLiteral("CAT spento"));
+        m_catOn = new QCheckBox(tr("Servi il CAT al telefono"));
+        m_catState = new QLabel(tr("CAT spento"));
 
         m_rigOut = new QComboBox;
-        m_rigOut->addItem(QStringLiteral("(nessuna: non trasmettere)"));
+        m_rigOut->addItem(tr("(nessuna: non trasmettere)"));
         for (QAudioDevice const& d : QMediaDevices::audioOutputs())
             m_rigOut->addItem(d.description());
 
@@ -767,51 +776,51 @@ public:
         catForm->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
         catForm->setHorizontalSpacing(10);
         catForm->setVerticalSpacing(7);
-        catForm->addRow(QStringLiteral("Radio / protocollo"), m_catModel);
-        m_etCiv = new QLabel(QStringLiteral("Indirizzo CI-V"));
-        m_catCivAddr->setToolTip(QStringLiteral(
+        catForm->addRow(tr("Radio / protocollo"), m_catModel);
+        m_etCiv = new QLabel(tr("Indirizzo CI-V"));
+        m_catCivAddr->setToolTip(tr(
             "L'indirizzo con cui il rig risponde sul bus CI-V.\n"
             "IC-7300: 0x94 (predefinito di fabbrica). Se e' stato cambiato nei\n"
             "menu della radio, va scritto lo stesso valore qui."));
         catForm->addRow(m_etCiv, m_catCivAddr);
-        catForm->addRow(QStringLiteral("Audio al rig"), m_rigOut);
+        catForm->addRow(tr("Audio al rig"), m_rigOut);
         // La tendina delle COM e il campo dell'indirizzo occupano lo stesso
         // posto: se ne vede uno solo, quello che serve al modello scelto.
         auto* rigaPortaRig = new QHBoxLayout;
         rigaPortaRig->setSpacing(0);
         rigaPortaRig->addWidget(m_catPort, 1);
         rigaPortaRig->addWidget(m_catRete, 1);
-        catForm->addRow(QStringLiteral("Porta rig"), rigaPortaRig);
+        catForm->addRow(tr("Porta rig"), rigaPortaRig);
         // Velocita' e porta TCP sono due numeri corti: stanno insieme.
         auto* rigaBaud = new QHBoxLayout;
         rigaBaud->setSpacing(8);
         rigaBaud->addWidget(m_catBaud, 1);
-        auto* etTcp = new QLabel(QStringLiteral("TCP"));
+        auto* etTcp = new QLabel(tr("TCP"));
         etTcp->setObjectName(QStringLiteral("minuscolo"));
         rigaBaud->addWidget(etTcp);
         m_catTcpPort->setFixedWidth(78);
         rigaBaud->addWidget(m_catTcpPort);
-        catForm->addRow(QStringLiteral("Velocità"), rigaBaud);
+        catForm->addRow(tr("Velocità"), rigaBaud);
         // Bit di dati, parità, stop e handshake stanno fra le avanzate: sono i
         // parametri che si impostano una volta secondo il manuale del rig e non
         // si guardano mai piu'. In vista lasciano solo una colonna lunga il
         // doppio dell'altra.
         auto* rigaSeriale = new QHBoxLayout;
         rigaSeriale->setSpacing(8);
-        auto* etDati = new QLabel(QStringLiteral("dati"));
+        auto* etDati = new QLabel(tr("dati"));
         etDati->setObjectName(QStringLiteral("minuscolo"));
         rigaSeriale->addWidget(etDati);
         rigaSeriale->addWidget(m_catDataBits);
-        auto* etPar = new QLabel(QStringLiteral("parità"));
+        auto* etPar = new QLabel(tr("parità"));
         etPar->setObjectName(QStringLiteral("minuscolo"));
         rigaSeriale->addWidget(etPar);
         rigaSeriale->addWidget(m_catParity, 1);
-        auto* etStop = new QLabel(QStringLiteral("stop"));
+        auto* etStop = new QLabel(tr("stop"));
         etStop->setObjectName(QStringLiteral("minuscolo"));
         rigaSeriale->addWidget(etStop);
         rigaSeriale->addWidget(m_catStopBits);
-        m_avanForm->addRow(QStringLiteral("Seriale"), rigaSeriale);
-        m_avanForm->addRow(QStringLiteral("Handshake"), m_catFlow);
+        m_avanForm->addRow(tr("Seriale"), rigaSeriale);
+        m_avanForm->addRow(tr("Handshake"), m_catFlow);
 
         // L'indirizzo CI-V riguarda solo gli Icom: con un Yaesu davanti e' una
         // riga che non vuol dire niente, quindi compare quando serve.
@@ -840,17 +849,17 @@ public:
 
         // ---- accesso: chi sei, e che cosa ti lasciano fare ----
         m_authHost = new QLineEdit;
-        m_authHost->setPlaceholderText(QStringLiteral("server di accesso (es. decolink.ft2.it)"));
+        m_authHost->setPlaceholderText(tr("server di accesso (es. decolink.ft2.it)"));
         m_email = new QLineEdit;
-        m_email->setPlaceholderText(QStringLiteral("la tua email"));
+        m_email->setPlaceholderText(tr("la tua email"));
         m_password = new QLineEdit;
         m_password->setEchoMode(QLineEdit::Password);
-        m_password->setPlaceholderText(QStringLiteral("password"));
-        m_remember = new QCheckBox(QStringLiteral("ricorda la password"));
-        m_remember->setToolTip(QStringLiteral("Viene salvata in chiaro fra le impostazioni di "
+        m_password->setPlaceholderText(tr("password"));
+        m_remember = new QCheckBox(tr("ricorda la password"));
+        m_remember->setToolTip(tr("Viene salvata in chiaro fra le impostazioni di "
                                               "Windows: conviene solo su un computer di cui ti fidi."));
-        m_login = new QPushButton(QStringLiteral("Accedi"));
-        m_authState = new QLabel(QStringLiteral("non collegato"));
+        m_login = new QPushButton(tr("Accedi"));
+        m_authState = new QLabel(tr("non collegato"));
         m_authState->setObjectName(QStringLiteral("identita"));
         m_authState->setWordWrap(true);
 
@@ -860,13 +869,13 @@ public:
         authForm->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
         authForm->setHorizontalSpacing(10);
         authForm->setVerticalSpacing(7);
-        authForm->addRow(QStringLiteral("Server"), m_authHost);
+        authForm->addRow(tr("Server"), m_authHost);
         auto* rigaCred = new QHBoxLayout;
         rigaCred->setSpacing(8);
         rigaCred->addWidget(m_email, 3);
         rigaCred->addWidget(m_password, 2);
         rigaCred->addWidget(m_login);
-        authForm->addRow(QStringLiteral("Accesso"), rigaCred);
+        authForm->addRow(tr("Accesso"), rigaCred);
         auto* rigaRic = new QHBoxLayout;
         rigaRic->addWidget(m_remember);
         rigaRic->addStretch(1);
@@ -882,13 +891,29 @@ public:
         auto* intestazione = new QLabel(QStringLiteral("DECOLINK"));
         intestazione->setObjectName(QStringLiteral("logo"));
 
+        // Selettore della lingua: sta accanto al logo, dove si vede senza
+        // cercarlo. Ogni voce e' scritta nella propria lingua, perche' chi apre
+        // il programma in una lingua che non capisce deve poter riconoscere la
+        // sua senza saper leggere le altre.
+        m_lingua = new QComboBox;
+        m_lingua->setObjectName(QStringLiteral("lingua"));
+        m_lingua->setToolTip(tr("lingua dell'interfaccia"));
+        QString const attuale = dl::linguaScelta();
+        for (dl::Lingua const& l : dl::lingue()) {
+            m_lingua->addItem(QString::fromUtf8(l.nome), QString::fromLatin1(l.codice));
+            if (attuale == QLatin1String(l.codice))
+                m_lingua->setCurrentIndex(m_lingua->count() - 1);
+        }
+        connect(m_lingua, &QComboBox::activated, this, &Client::cambiaLingua);
+
         auto* barra = new QHBoxLayout;
         barra->addWidget(intestazione);
         barra->addStretch(1);
+        barra->addWidget(m_lingua);
 
         auto* colSx = new QVBoxLayout;
         colSx->setSpacing(6);
-        auto* tSx = new QLabel(QStringLiteral("COLLEGAMENTO"));
+        auto* tSx = new QLabel(tr("COLLEGAMENTO"));
         tSx->setObjectName(QStringLiteral("titolo"));
         colSx->addWidget(tSx);
         colSx->addLayout(form);
@@ -896,7 +921,7 @@ public:
 
         auto* colDx = new QVBoxLayout;
         colDx->setSpacing(6);
-        auto* tDx = new QLabel(QStringLiteral("RADIO E CAT"));
+        auto* tDx = new QLabel(tr("RADIO E CAT"));
         tDx->setObjectName(QStringLiteral("titolo"));
         colDx->addWidget(tDx);
         colDx->addLayout(catForm);
@@ -919,7 +944,7 @@ public:
         comandi->addWidget(m_start);
         auto* livCol = new QVBoxLayout;
         livCol->setSpacing(3);
-        auto* etLiv = new QLabel(QStringLiteral("livello audio"));
+        auto* etLiv = new QLabel(tr("livello audio"));
         etLiv->setObjectName(QStringLiteral("minuscolo"));
         livCol->addWidget(etLiv);
         livCol->addWidget(m_level);
@@ -974,7 +999,7 @@ public:
             preparaPcm();
             m_acc.clear();
             if (m_running)
-                setStatus(QStringLiteral("campionamento a %1 kHz: se il telefono lo sente "
+                setStatus(tr("campionamento a %1 kHz: se il telefono lo sente "
                                          "accelerato, torna a 48")
                               .arg(campionamento() / 1000));
             saveSettings();
@@ -1050,6 +1075,44 @@ public:
     ~Client() override { saveSettings(); }
 
 private slots:
+    // Cambio di lingua. Qt sa ritradurre solo cio' che si ricostruisce, e qui
+    // l'interfaccia e' scritta a mano riga per riga: riavviare il programma e'
+    // piu' onesto che ritradurre a mano centoventi etichette e dimenticarne
+    // tre. Se pero' il collegamento e' aperto non si tocca niente: nessuno
+    // vuole perdere un QSO per aver sfiorato un menu a tendina.
+    void cambiaLingua(int indice)
+    {
+        QString const codice = m_lingua->itemData(indice).toString();
+        if (codice.isEmpty() || codice == dl::linguaScelta()) return;
+
+        if (m_running) {
+            QMessageBox::information(
+                this, tr("Lingua"),
+                tr("Il collegamento è aperto: la lingua cambia alla prossima "
+                   "apertura del programma."));
+            dl::salvaLingua(codice);
+            return;
+        }
+
+        auto const scelta = QMessageBox::question(
+            this, tr("Lingua"),
+            tr("Decolink si riavvia per cambiare lingua. Procedo?"),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
+        if (scelta != QMessageBox::Yes) {
+            // Rimetti la tendina dov'era: lasciarla sulla lingua non applicata
+            // farebbe credere che il cambio sia andato a buon fine.
+            QString const attuale = dl::linguaScelta();
+            for (int i = 0; i < m_lingua->count(); ++i)
+                if (m_lingua->itemData(i).toString() == attuale) { m_lingua->setCurrentIndex(i); break; }
+            return;
+        }
+
+        dl::salvaLingua(codice);
+        saveSettings();     // prima del riavvio, o il nuovo processo legge i valori vecchi
+        QProcess::startDetached(QApplication::applicationFilePath(), QStringList());
+        qApp->quit();
+    }
+
     void syncFields()
     {
         int const m = m_mode->currentIndex();
@@ -1057,13 +1120,13 @@ private slots:
         m_station->setEnabled(m == ModeRelay && m_station->count() > 0 && !m_token.isEmpty());
         switch (m) {
         case ModeLan:
-            m_host->setPlaceholderText(QStringLiteral("IP del telefono sulla rete locale"));
+            m_host->setPlaceholderText(tr("IP del telefono sulla rete locale"));
             break;
         case ModeRelay:
-            m_host->setPlaceholderText(QStringLiteral("host del relay (es. decolink.ft2.it)"));
+            m_host->setPlaceholderText(tr("host del relay (es. decolink.ft2.it)"));
             break;
         default:
-            m_host->setPlaceholderText(QStringLiteral("(il telefono chiama questa porta)"));
+            m_host->setPlaceholderText(tr("(il telefono chiama questa porta)"));
             break;
         }
     }
@@ -1074,9 +1137,9 @@ private slots:
     void login(const QString& stazione = QString())
     {
         QString host = m_authHost->text().trimmed();
-        if (host.isEmpty()) { setAuthState(QStringLiteral("manca il server di accesso"), true); return; }
+        if (host.isEmpty()) { setAuthState(tr("manca il server di accesso"), true); return; }
         if (m_email->text().trimmed().isEmpty() || m_password->text().isEmpty()) {
-            setAuthState(QStringLiteral("servono email e password"), true); return;
+            setAuthState(tr("servono email e password"), true); return;
         }
         if (m_authPending) return;
 
@@ -1098,7 +1161,7 @@ private slots:
 
         m_authPending = true;
         m_login->setEnabled(false);
-        setAuthState(QStringLiteral("accesso in corso…"));
+        setAuthState(tr("accesso in corso…"));
         QNetworkReply* rep = m_net.post(req, QJsonDocument(corpo).toJson(QJsonDocument::Compact));
         connect(rep, &QNetworkReply::finished, this, [this, rep] {
             rep->deleteLater();
@@ -1118,7 +1181,7 @@ private slots:
         // password sbagliata quando in realta' il server non risponde.
         if (r.isEmpty()) {
             setAuthState(rep->error() == QNetworkReply::NoError
-                             ? QStringLiteral("risposta incomprensibile dal server")
+                             ? tr("risposta incomprensibile dal server")
                              : QStringLiteral("server non raggiungibile: %1").arg(rep->errorString()),
                          true);
             return;
@@ -1155,7 +1218,7 @@ private slots:
         QString const ruolo = m_role == QLatin1String("own") ? QStringLiteral("titolare")
                             : m_role == QLatin1String("opr") ? QStringLiteral("operatore")
                                                              : QStringLiteral("ascoltatore");
-        setAuthState(QStringLiteral("%1 — stazione %2, come %3%4")
+        setAuthState(tr("%1 — stazione %2, come %3%4")
                          .arg(m_callsign, m_tokenStation, ruolo,
                               m_canTx ? QString() : QStringLiteral(" (solo ascolto)")));
         saveSettings();
@@ -1178,7 +1241,7 @@ private slots:
             QJsonObject const o = v.toObject();
             QString const slug = o.value(QStringLiteral("slug")).toString();
             QString const nome = o.value(QStringLiteral("name")).toString();
-            m_station->addItem(nome.isEmpty() ? slug : QStringLiteral("%1 — %2").arg(slug, nome), slug);
+            m_station->addItem(nome.isEmpty() ? slug : tr("%1 — %2").arg(slug, nome), slug);
         }
         m_station->setEnabled(true);
         int const i = m_station->findData(m_tokenStation.isEmpty() ? m_wantStation : m_tokenStation);
@@ -1214,10 +1277,10 @@ private slots:
         if (m_token.isEmpty()) {
             m_keepAlive.stop();
             if (!m_password->text().isEmpty() && !m_authPending) {
-                setStatus(QStringLiteral("credenziali scadute: rifaccio l'accesso"));
+                setStatus(tr("credenziali scadute: rifaccio l'accesso"));
                 login(m_tokenStation);
             } else {
-                setStatus(QStringLiteral("manca l'accesso: premi Accedi, poi Avvia"));
+                setStatus(tr("manca l'accesso: premi Accedi, poi Avvia"));
                 if (m_running) stop();
             }
             return;
@@ -1235,7 +1298,7 @@ private slots:
             m_catPoll.stop();
             if (m_catServer) { m_catServer->close(); m_catServer->deleteLater(); m_catServer = nullptr; }
             m_rig.close();
-            m_catState->setText(QStringLiteral("CAT spento"));
+            m_catState->setText(tr("CAT spento"));
             return;
         }
         QString const port = m_catPort->currentText().section(QLatin1Char(' '), 0, 0);
@@ -1247,7 +1310,7 @@ private slots:
             false;
 #endif
         if (port.isEmpty() && !usaRete) {
-            m_catState->setText(QStringLiteral("nessuna porta seriale"));
+            m_catState->setText(tr("nessuna porta seriale"));
             m_catOn->setChecked(false);
             return;
         }
@@ -1256,7 +1319,7 @@ private slots:
         bool civOk = false;
         int const civAddress = m_catCivAddr->text().trimmed().toInt(&civOk, 0);
         if (nativoIcom && (!civOk || civAddress < 0 || civAddress > 255)) {
-            m_catState->setText(QStringLiteral("indirizzo CI-V non valido"));
+            m_catState->setText(tr("indirizzo CI-V non valido"));
             m_catOn->setChecked(false); return;
         }
 
@@ -1265,7 +1328,7 @@ private slots:
             bool const perRete = dl::HamlibRig::modelloPerRete(scelta);
             QString const dove = perRete ? m_catRete->text().trimmed() : port;
             if (dove.isEmpty()) {
-                m_catState->setText(perRete ? QStringLiteral("manca l'indirizzo del programma "
+                m_catState->setText(perRete ? tr("manca l'indirizzo del programma "
                                                              "che tiene la radio")
                                             : QStringLiteral("nessuna porta seriale"));
                 m_catOn->setChecked(false);
@@ -1277,7 +1340,7 @@ private slots:
             if (perRete && dove.endsWith(QStringLiteral(":%1").arg(m_catTcpPort->value()))
                 && (dove.startsWith(QLatin1String("localhost"))
                     || dove.startsWith(QLatin1String("127.0.0.1")))) {
-                m_catState->setText(QStringLiteral("la porta TCP %1 e' la stessa a cui ti stai "
+                m_catState->setText(tr("la porta TCP %1 e' la stessa a cui ti stai "
                                                    "collegando: cambiane una")
                                         .arg(m_catTcpPort->value()));
                 m_catOn->setChecked(false);
@@ -1293,7 +1356,7 @@ private slots:
                                   m_catDataBits->currentText().toInt(),
                                   m_catStopBits->currentText().toInt(),
                                   stretta.value(m_catFlow->currentData().toInt()))) {
-                m_catState->setText(QStringLiteral("%1 non risponde: %2")
+                m_catState->setText(tr("%1 non risponde: %2")
                                         .arg(port, m_rig.error()));
                 m_catOn->setChecked(false);
                 return;
@@ -1306,7 +1369,7 @@ private slots:
                         QSerialPort::StopBits(m_catStopBits->currentData().toInt()),
                         QSerialPort::FlowControl(m_catFlow->currentData().toInt()),
                         nativoIcom, civOk ? civAddress : 0x94)) {
-            m_catState->setText(QStringLiteral("%1 non si apre: %2").arg(port, m_rig.error()));
+            m_catState->setText(tr("%1 non si apre: %2").arg(port, m_rig.error()));
             m_catOn->setChecked(false);
             return;
         }
@@ -1314,7 +1377,7 @@ private slots:
         // telefono si collega come ha sempre fatto
         m_catServer = new QTcpServer(this);
         if (!m_catServer->listen(QHostAddress::Any, quint16(m_catTcpPort->value()))) {
-            m_catState->setText(QStringLiteral("porta TCP %1 occupata (rigctld è già in esecuzione?)")
+            m_catState->setText(tr("porta TCP %1 occupata (rigctld è già in esecuzione?)")
                                     .arg(m_catTcpPort->value()));
             m_rig.close(); m_catServer->deleteLater(); m_catServer = nullptr;
             m_catOn->setChecked(false);
@@ -1342,7 +1405,7 @@ private slots:
         qint64 const hz = m_rig.readFreq();
         QString const md = m_rig.readMode();
         m_catState->setText(hz > 0
-            ? QStringLiteral("rig: %1 MHz  %2   (TCP %3, e sul canale audio)")
+            ? tr("rig: %1 MHz  %2   (TCP %3, e sul canale audio)")
                   .arg(hz / 1e6, 0, 'f', 3).arg(md).arg(m_catTcpPort->value())
             : QStringLiteral("rig non risponde sulla seriale"));
     }
@@ -1372,7 +1435,7 @@ private slots:
                     // ack: REGISTER->REGISTER, PING->PONG (come fa il relay)
                     m_sock->writeDatagram(hfgwPacket(flags == kFlagPing ? kFlagPong : kFlagRegister,
                                                      getU32(h + 6), nullptr, 0), from, fromPort);
-                    if (isNew) setStatus(QStringLiteral("telefono connesso da %1:%2")
+                    if (isNew) setStatus(tr("telefono connesso da %1:%2")
                                              .arg(from.toString()).arg(fromPort));
                 }
             }
@@ -1422,11 +1485,11 @@ private slots:
                                           || motivo.contains(QStringLiteral("chiave"))
                                           || motivo.contains(QStringLiteral("registrat"));
                 if (eCredenziale && !m_password->text().isEmpty() && !m_authPending) {
-                    setStatus(QStringLiteral("credenziali da rinnovare: rifaccio l'accesso"));
+                    setStatus(tr("credenziali da rinnovare: rifaccio l'accesso"));
                     login(m_tokenStation);
                 } else {
                     m_token.clear();
-                    setStatus(QStringLiteral("il relay ha rifiutato il collegamento: %1").arg(motivo));
+                    setStatus(tr("il relay ha rifiutato il collegamento: %1").arg(motivo));
                     setAuthState(motivo, true);
                     if (m_running) stop();
                 }
@@ -1434,9 +1497,9 @@ private slots:
             }
             if (flags == kFlagPeerUp) {
                 m_peerUpVisto = true;
-                setStatus(QStringLiteral("il telefono è entrato nella stanza"));
+                setStatus(tr("il telefono è entrato nella stanza"));
             } else if (flags == kFlagRegister) {
-                setStatus(QStringLiteral("registrato sul relay come %1 (%2)")
+                setStatus(tr("registrato sul relay come %1 (%2)")
                               .arg(m_callsign, m_tokenStation));
             }
         }
@@ -1543,7 +1606,7 @@ private slots:
             if (m_peerSaAggr != prima) {
                 m_daSpedire.clear();
                 setStatus(m_peerSaAggr
-                              ? QStringLiteral("il telefono legge i pacchetti raggruppati: banda ridotta")
+                              ? tr("il telefono legge i pacchetti raggruppati: banda ridotta")
                               : QStringLiteral("il telefono vuole un frame per pacchetto"));
             }
             char offerta[4] = { char(dl::PVoce), char(dl::PCw), char(dl::PPcm48), 0 };
@@ -1565,7 +1628,7 @@ private slots:
             int const idx = m_profile->findData(voluto);
             if (idx >= 0) {
                 m_profile->setCurrentIndex(idx);        // fa scattare apriCodec()
-                setStatus(QStringLiteral("profilo su richiesta del telefono: %1")
+                setStatus(tr("profilo su richiesta del telefono: %1")
                               .arg(QString::fromLatin1(dl::nomeProfilo(voluto))));
             }
             QByteArray att;
@@ -1859,7 +1922,7 @@ private slots:
             QAudioFormat fmt;
             fmt.setSampleRate(kRate); fmt.setChannelCount(1); fmt.setSampleFormat(QAudioFormat::Int16);
             if (!outs[idx].isFormatSupported(fmt)) {
-                setStatus(QStringLiteral("%1 non supporta 48 kHz mono 16 bit").arg(outs[idx].description()));
+                setStatus(tr("%1 non supporta 48 kHz mono 16 bit").arg(outs[idx].description()));
                 return;
             }
             m_txQueue = new TxQueue(this);
@@ -1867,7 +1930,7 @@ private slots:
             m_txSink = new QAudioSink(outs[idx], fmt, this);
             m_txSink->setBufferSize(kRate * 2 / 10);      // ~100 ms
             m_txSink->start(m_txQueue);
-            setStatus(QStringLiteral("trasmissione dal telefono in corso"));
+            setStatus(tr("trasmissione dal telefono in corso"));
         }
         m_txQueue->push(pcm);
     }
@@ -1878,14 +1941,14 @@ private slots:
         if (!m_txQueue->idle(1200)) return;               // ancora audio in arrivo
         m_txSink->stop(); m_txSink->deleteLater(); m_txSink = nullptr;
         m_txQueue->close(); m_txQueue->deleteLater(); m_txQueue = nullptr;
-        setStatus(QStringLiteral("trasmissione finita"));
+        setStatus(tr("trasmissione finita"));
     }
 
     void refreshStats()
     {
         closeTxIfIdle();
         m_level->setValue(int(qMin(1.0, m_rms * 4.0) * 100));
-        if (!m_running) { m_stats->setText(QStringLiteral("—")); return; }
+        if (!m_running) { m_stats->setText(tr("—")); return; }
 
         // La banda si misura, non si stima: e' il numero che dice se il profilo
         // sta facendo il suo lavoro, e comprende le intestazioni IP e UDP che si
@@ -1929,10 +1992,10 @@ private slots:
         // I due modi in cui si manda audio senza che arrivi a nessuno, ed e'
         // giusto dirlo invece di lasciar guardare la barra del livello.
         if (m_mode->currentIndex() == ModeRelay && !m_peerUpVisto) {
-            setStatus(QStringLiteral("registrato, ma nella stazione non c'è nessun altro: "
+            setStatus(tr("registrato, ma nella stazione non c'è nessun altro: "
                                      "il telefono non è ancora entrato"));
         } else if (prof != dl::PPcm48 && !m_peerHaParlato) {
-            setStatus(QStringLiteral("attenzione: profilo %1, ma il telefono non ha confermato "
+            setStatus(tr("attenzione: profilo %1, ma il telefono non ha confermato "
                                      "di saperlo leggere — se non senti niente, passa a PCM 48 kHz")
                           .arg(QString::fromLatin1(dl::nomeProfilo(prof))));
         }
@@ -1946,7 +2009,7 @@ private:
             if (m_peerPort == 0) return false;
             if (QDateTime::currentMSecsSinceEpoch() - m_peerSeen > 20000) {
                 m_peerPort = 0;
-                setStatus(QStringLiteral("telefono non più raggiungibile — attendo che richiami"));
+                setStatus(tr("telefono non più raggiungibile — attendo che richiami"));
                 return false;
             }
             m_dstAddr = m_peerAddr; m_dstPort = m_peerPort;
@@ -1988,7 +2051,7 @@ private:
         int const bitrate = (scelto == dl::PCw) ? 12000 : 24000;
         int const banda   = (scelto == dl::PCw) ?  4000 :  6000;
         if (!m_opusOut.apri(bitrate, banda) || !m_opusIn.apri(bitrate, banda)) {
-            setStatus(QStringLiteral("Opus non si avvia (%1): resto sul PCM")
+            setStatus(tr("Opus non si avvia (%1): resto sul PCM")
                           .arg(m_opusOut.errore()));
             m_opusOut.chiudi(); m_opusIn.chiudi();
         }
@@ -2004,15 +2067,15 @@ private:
 
         if (m != ModeListen) {
             QString const host = m_host->text().trimmed();
-            if (host.isEmpty()) { setStatus(QStringLiteral("manca l'host di destinazione")); return; }
+            if (host.isEmpty()) { setStatus(tr("manca l'host di destinazione")); return; }
             QHostInfo const info = QHostInfo::fromName(host);   // risolve anche i nomi DynDNS
             if (info.addresses().isEmpty()) {
-                setStatus(QStringLiteral("nome non risolto: %1").arg(host)); return;
+                setStatus(tr("nome non risolto: %1").arg(host)); return;
             }
             m_dstAddr = info.addresses().first();
         }
         if (m == ModeRelay && m_token.isEmpty()) {
-            setStatus(QStringLiteral("accedi prima: il relay non accetta collegamenti senza credenziali"));
+            setStatus(tr("accedi prima: il relay non accetta collegamenti senza credenziali"));
             return;
         }
 
@@ -2022,7 +2085,7 @@ private:
                                ? m_sock->bind(QHostAddress::AnyIPv4, m_dstPort)
                                : m_sock->bind();
         if (!bound) {
-            setStatus(QStringLiteral("porta %1 non disponibile").arg(m_dstPort));
+            setStatus(tr("porta %1 non disponibile").arg(m_dstPort));
             delete m_sock; m_sock = nullptr; return;
         }
         connect(m_sock, &QUdpSocket::readyRead, this, &Client::onDatagram);
@@ -2036,24 +2099,24 @@ private:
         // audio dalla radio
         QList<QAudioDevice> const ins = QMediaDevices::audioInputs();
         int const idx = m_device->currentIndex();
-        if (idx < 0 || idx >= ins.size()) { setStatus(QStringLiteral("nessun ingresso audio")); return; }
+        if (idx < 0 || idx >= ins.size()) { setStatus(tr("nessun ingresso audio")); return; }
         QAudioFormat fmt;
         fmt.setSampleRate(kRate); fmt.setChannelCount(1); fmt.setSampleFormat(QAudioFormat::Int16);
         if (!ins[idx].isFormatSupported(fmt)) {
-            setStatus(QStringLiteral("%1 non supporta 48 kHz mono 16 bit").arg(ins[idx].description()));
+            setStatus(tr("%1 non supporta 48 kHz mono 16 bit").arg(ins[idx].description()));
             return;
         }
         m_audio = new QAudioSource(ins[idx], fmt, this);
         m_audioIo = m_audio->start();
-        if (!m_audioIo) { setStatus(QStringLiteral("impossibile aprire l'ingresso audio")); return; }
+        if (!m_audioIo) { setStatus(tr("impossibile aprire l'ingresso audio")); return; }
         connect(m_audioIo, &QIODevice::readyRead, this, &Client::onAudioReady);
 
         m_running = true;
-        m_start->setText(QStringLiteral("Ferma"));
+        m_start->setText(tr("Ferma"));
         setFieldsEnabled(false);
         if (m == ModeRelay) { sendRegister(); m_keepAlive.start(); }
         setStatus(m == ModeListen
-                      ? QStringLiteral("in ascolto sulla porta %1 — attendo il telefono").arg(m_dstPort)
+                      ? tr("in ascolto sulla porta %1 — attendo il telefono").arg(m_dstPort)
                       : QStringLiteral("invio a %1:%2").arg(m_dstAddr.toString()).arg(m_dstPort));
         saveSettings();
     }
@@ -2064,9 +2127,9 @@ private:
         if (m_audio) { m_audio->stop(); m_audio->deleteLater(); m_audio = nullptr; m_audioIo = nullptr; }
         if (m_sock)  { m_sock->close(); m_sock->deleteLater(); m_sock = nullptr; }
         m_running = false; m_rms = 0;
-        m_start->setText(QStringLiteral("Avvia"));
+        m_start->setText(tr("Avvia"));
         setFieldsEnabled(true);
-        setStatus(QStringLiteral("fermo"));
+        setStatus(tr("fermo"));
     }
 
     void setFieldsEnabled(bool on)
@@ -2104,7 +2167,7 @@ private:
             if (quint8(m_profile->currentData().toUInt()) != dl::PPcm48) {
                 m_profile->setCurrentIndex(0);      // PCM 48 kHz
                 QTimer::singleShot(1200, this, [this] {
-                    setStatus(QStringLiteral("profilo riportato a PCM 48 kHz: i profili compressi "
+                    setStatus(tr("profilo riportato a PCM 48 kHz: i profili compressi "
                                              "richiedono un telefono aggiornato"));
                 });
             }
@@ -2205,6 +2268,7 @@ private:
     QTimer m_catPoll;
 
     QComboBox* m_rigOut;
+    QComboBox* m_lingua {nullptr};
     QAudioSink* m_txSink {nullptr};
     TxQueue* m_txQueue {nullptr};
 
@@ -2270,6 +2334,19 @@ int main(int argc, char** argv)
     QApplication app(argc, argv);
     app.setWindowIcon(QIcon(QStringLiteral(":/hfgw.ico")));
 
+    // La lingua prima di costruire qualunque cosa: le stringhe si traducono
+    // quando i widget nascono, e un traduttore installato dopo non le tocca.
+    //
+    // --lingua=de apre in tedesco una volta sola, senza salvare niente: serve a
+    // guardare come viene una traduzione prima di adottarla.
+    QString linguaOra = dl::linguaScelta();
+    for (QString const& a : app.arguments())
+        if (a.startsWith(QStringLiteral("--lingua="))) {
+            QString const c = a.mid(9);
+            if (dl::conosciuta(c)) linguaOra = c;
+        }
+    dl::installaTraduttori(app, linguaOra);
+
     // --devices: elenca gli ingressi audio e esce. Serve a verificare che il
     // backend multimediale funzioni davvero in una copia distribuita (se manca
     // qualcosa la lista esce vuota e il client sarebbe inutilizzabile).
@@ -2283,6 +2360,45 @@ int main(int argc, char** argv)
         for (QAudioDevice const& d : outs) out << "  " << d.description() << "\n";
         out.flush();
         return ins.isEmpty() ? 2 : 0;
+    }
+
+    // --lingue: controlla che i cataloghi siano davvero dentro l'eseguibile e
+    // che traducano. Un .qm che non si carica non da' errore: l'interfaccia
+    // resta in italiano e sembra una svista invece di un file mancante.
+    if (app.arguments().contains(QStringLiteral("--lingue"))) {
+        QTextStream out(stdout);
+        out << "Decolink — cataloghi di traduzione\n";
+        out << "lingua del sistema: " << QLocale().name()
+            << " -> " << dl::linguaDiSistema() << "\n";
+        out << "lingua in uso: " << dl::linguaScelta() << "\n\n";
+        int guaste = 0;
+        for (dl::Lingua const& l : dl::lingue()) {
+            QString const cod = QString::fromLatin1(l.codice);
+            if (cod == QLatin1String("it")) {
+                out << "  it     (lingua del sorgente)\n";
+                continue;
+            }
+            QTranslator t;
+            if (!t.load(QStringLiteral(":/traduzioni/%1.qm").arg(cod))) {
+                out << "  " << cod.leftJustified(6) << "CATALOGO ASSENTE\n";
+                ++guaste;
+                continue;
+            }
+            // Una stringa qualsiasi, purche' esista: se torna uguale
+            // all'originale il catalogo si e' caricato ma e' vuoto.
+            QString const prova = t.translate("Client", "Avvia");
+            if (prova.isEmpty() || prova == QLatin1String("Avvia")) {
+                out << "  " << cod.leftJustified(6) << "caricato ma non traduce\n";
+                ++guaste;
+            } else {
+                out << "  " << cod.leftJustified(6) << QString::fromUtf8(l.nome).leftJustified(12)
+                    << "Avvia -> " << prova << "\n";
+            }
+        }
+        out << (guaste ? QStringLiteral("\n%1 cataloghi da rivedere\n").arg(guaste)
+                       : QStringLiteral("\ntutti i cataloghi a posto\n"));
+        out.flush();
+        return guaste ? 6 : 0;
     }
 
     // --codectest: misura quanta banda occupa ogni profilo, senza radio e senza

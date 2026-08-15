@@ -10,3 +10,6 @@ decolink.db
 decolink.db-wal
 decolink.db-shm
 decolink.key
+
+# file di lavoro delle traduzioni
+gui/traduzioni/_elenco.json
