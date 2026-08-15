@@ -43,6 +43,8 @@ import threading
 import time
 import urllib.parse
 import urllib.request      # serve a chiedere a GitHub qual e' l'ultima release
+
+import traduzioni_sito_fine as ts   # i testi della prima pagina, in sedici lingue
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import decolink_db as db
@@ -102,6 +104,9 @@ header { background:linear-gradient(90deg,#0b1018 0%,#16213e 55%,#1d2c56 100%);
 header .logo { font-weight:800; letter-spacing:1.2px; font-size:17px;
                background:linear-gradient(90deg,var(--ciano),var(--acqua));
                -webkit-background-clip:text; background-clip:text; color:transparent }
+/* Il logo e' un collegamento alla prima pagina, ma resta scritto col gradiente:
+   senza questa riga header a:hover vince per specificita' e lo appiattisce. */
+header a.logo:hover { color:transparent }
 header .sp { flex:1 }
 header a { color:var(--tenue) } header a:hover { color:var(--ciano); text-decoration:none }
 
@@ -176,6 +181,33 @@ footer a { color:#5d7ba3 }
                border-radius:8px; white-space:nowrap }
 .banner .vai:hover { filter:brightness(1.12); text-decoration:none }
 @media (max-width:520px) { .banner .vai { width:100% ; text-align:center } }
+
+/* Selettore delle lingue: un <details>, cosi' non serve JavaScript. */
+.lingue { position:relative; display:inline-block }
+.lingue summary { list-style:none; cursor:pointer; color:#8fb3d9; font-size:13px;
+                  padding:5px 10px; border:1px solid var(--bordo); border-radius:7px;
+                  white-space:nowrap }
+.lingue summary::-webkit-details-marker { display:none }
+.lingue summary::after { content:" ▾"; color:#5d7ba3 }
+.lingue summary:hover { border-color:var(--ciano); color:#e8edf5 }
+.lingue .tendina { position:absolute; right:0; top:calc(100% + 6px); z-index:20;
+                   background:var(--fondo2); border:1px solid var(--bordo);
+                   border-radius:9px; padding:6px; min-width:170px;
+                   box-shadow:0 12px 30px rgba(0,0,0,.5);
+                   display:grid; grid-template-columns:1fr 1fr; gap:2px }
+.lingue .tendina a { display:block; padding:6px 9px; border-radius:6px; font-size:13px;
+                     color:#c9d8ea; white-space:nowrap }
+.lingue .tendina a:hover { background:rgba(0,229,255,.12); text-decoration:none }
+.lingue .tendina a.qui { color:var(--ciano); font-weight:700 }
+
+/* Prima pagina */
+.prima h1 { font-size:34px; line-height:1.2; margin-bottom:10px }
+.prima .claim { font-size:17px; max-width:660px; margin:0 auto 24px; color:#c9d8ea }
+.prima .sotto-btn { margin-top:12px; font-size:14px; color:#8fb3d9 }
+.prima .gia { margin-top:18px; font-size:14px; color:#8fb3d9 }
+.modi { display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); gap:14px }
+.modi .card b { color:var(--ciano) }
+h2 { font-size:19px; margin:30px 0 12px }
 """
 
 
@@ -292,6 +324,26 @@ GITHUB_SVG = ('<svg class="gh" viewBox="0 0 16 16" aria-hidden="true"><path d="M
               '2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>')
 
 
+COOKIE_LINGUA = "dl_lang"
+
+
+def menu_lingue(codice: str, percorso: str) -> str:
+    """Il selettore delle lingue, in HTML e basta.
+
+    Un <details> invece di un <select> con JavaScript: si apre e si chiude da
+    solo, funziona anche a script spenti, e ogni voce e' un collegamento vero
+    che si puo' condividere. Ogni lingua e' scritta nella propria lingua,
+    perche' chi arriva su una pagina che non capisce deve poter riconoscere la
+    sua senza saper leggere le altre.
+    """
+    corrente = dict(ts.LINGUE).get(codice, codice)
+    voci = "".join(
+        f'<a href="{e(percorso)}?lang={c}"{" class=\'qui\'" if c == codice else ""}>{e(n)}</a>'
+        for c, n in ts.LINGUE)
+    return (f'<details class="lingue"><summary>{e(corrente)}</summary>'
+            f'<div class="tendina">{voci}</div></details>')
+
+
 def banner_scarica() -> str:
     """La striscia che dice dove si prende il client.
 
@@ -321,8 +373,159 @@ def banner_scarica() -> str:
             f'<a class="vai" href="{dove}">{etichetta}</a></div>')
 
 
+
+# Informativa privacy dell'app Decodium Mobile (pacchetto it.ft2.decodium).
+# Il Play Store esige un indirizzo pubblico che elenchi i dati trattati
+# dall'APP: quella di ft2.it riguarda il sito e il forum, e non basta.
+# Il testo sorgente sta in decodium-mobile/store/privacy-policy.html: se si
+# cambia li', va riportato anche qui.
+PRIVACY_APP = """<h1>Decodium 4 — Informativa sulla privacy</h1>
+<p class="data">In vigore dal 14 agosto 2026 · applicazione Android <code>it.ft2.decodium</code></p>
+
+<p>Decodium 4 è un'applicazione per radioamatori: decodifica e trasmette i modi
+digitali FT8, FT4 e FT2 e comanda una radio via CAT. Questa informativa spiega
+quali dati tratta, dove finiscono e cosa puoi decidere tu.</p>
+
+<p>In sintesi: <strong>non c'è pubblicità, non c'è analitica, non c'è
+profilazione</strong> e non viene usato alcun identificativo pubblicitario. I dati
+restano sul telefono, tranne quelli che tu scegli di mandare in aria o alle reti
+radioamatoriali — e tranne quelli dell'account, se decidi di usare il
+collegamento remoto.</p>
+
+<h2>L'account per il collegamento remoto</h2>
+
+<p>Per operare da remoto — cioè con il telefono fuori casa, anche su dati mobili —
+serve un account sul servizio <strong>decolink.ft2.it</strong>, che è gestito da
+chi sviluppa questa app. È l'unico caso in cui dei tuoi dati arrivano a noi.</p>
+
+<p>La registrazione avviene dal browser su
+<code>https://decolink.ft2.it/registrati</code> e raccoglie:</p>
+
+<ul>
+  <li><strong>indirizzo email</strong> — identifica l'account e serve per accedere;</li>
+  <li><strong>password</strong> — conservata sul server in forma cifrata, mai in chiaro;</li>
+  <li><strong>nominativo radioamatoriale e stazione</strong> — servono al titolare
+      della stazione per decidere se autorizzarti, e per stabilire il tuo ruolo
+      (per esempio "solo ascolto").</li>
+</ul>
+
+<p>La richiesta resta in attesa finché il titolare della stazione non la approva:
+l'approvazione è una scelta sua, non automatica. Il server conserva questi dati
+per tutto il tempo in cui l'account esiste, li usa solo per far funzionare il
+collegamento e <strong>non li cede a nessuno</strong>. Puoi chiederne in qualsiasi
+momento la cancellazione scrivendo all'indirizzo in fondo.</p>
+
+<p><strong>Questo account non serve se operi in rete locale.</strong> Con il
+telefono sulla stessa rete WiFi del computer non c'è alcuna registrazione e
+nessun dato esce da casa tua: è la modalità che consigliamo a chi non ha bisogno
+di collegarsi da fuori.</p>
+
+<h2>Dati trattati e dove restano</h2>
+
+<table>
+<tr><th>Dato</th><th>A cosa serve</th><th>Dove va</th></tr>
+
+<tr>
+  <td>Nominativo e locatore che inserisci</td>
+  <td>Costruire i messaggi radio: senza di essi non si può operare</td>
+  <td>Trasmessi <strong>via radio</strong>, quindi pubblici per natura. Inviati
+      anche alle reti radioamatoriali elencate sotto, se attivi quelle funzioni</td>
+</tr>
+
+<tr>
+  <td>Microfono</td>
+  <td>Solo per la trasmissione in fonia, mentre tieni premuto il tasto</td>
+  <td>Trasmesso in tempo reale alla radio. <strong>Non viene registrato</strong>
+      né conservato né inviato allo sviluppatore. Il permesso viene chiesto al
+      primo uso della fonia, non all'avvio: chi ascolta soltanto non se lo vede
+      mai chiedere</td>
+</tr>
+
+<tr>
+  <td>Registro dei collegamenti (log ADIF)</td>
+  <td>Tenere memoria dei QSO</td>
+  <td>Resta sul telefono</td>
+</tr>
+
+<tr>
+  <td>Credenziali dell'account Decolink</td>
+  <td>Accedere al relay per operare da remoto</td>
+  <td>Sul telefono restano <strong>solo se lo chiedi</strong> ("ricordami"), nel
+      portachiavi cifrato di Android. Vengono inviate a decolink.ft2.it per
+      l'accesso, che rilascia un permesso temporaneo rinnovato ogni ora</td>
+</tr>
+
+<tr>
+  <td>Impostazioni dell'app</td>
+  <td>Ritrovare la configurazione</td>
+  <td>Restano sul telefono</td>
+</tr>
+</table>
+
+<h2>Servizi di terze parti</h2>
+
+<p>Sono tutti servizi del mondo radioamatoriale, e ciascuno entra in funzione
+solo se lo usi o lo attivi:</p>
+
+<ul>
+  <li><strong>PSK Reporter</strong> — se attivi l'invio dei rapporti di ricezione,
+      l'app pubblica quali stazioni hai ricevuto, con nominativo, locatore,
+      frequenza e orario. È una rete pubblica di propagazione: quei dati diventano
+      consultabili da chiunque.</li>
+  <li><strong>Cluster DX</strong> — il collegamento avviene con il tuo nominativo,
+      come da prassi del servizio.</li>
+  <li><strong>QRZ</strong> — consultato per risalire ai dati pubblici di un
+      nominativo. Se attivi il logbook QRZ, i collegamenti che chiudi vengono
+      caricati sul tuo diario di stazione, usando la chiave che inserisci tu.</li>
+  <li><strong>Cloudlog</strong> — stesso discorso del logbook QRZ, verso
+      l'indirizzo del tuo Cloudlog: sale lo stesso collegamento che finisce nel
+      file locale, e l'indirizzo e la chiave li fornisci tu. Se non li inserisci,
+      l'app non contatta nessun diario online.</li>
+  <li><strong>Relay Decolink</strong> (<code>decolink.ft2.it</code>, oppure un
+      server tuo se ne ospiti uno) — trasporta audio e comandi fra telefono e
+      radio quando operi da remoto. Non è un terzo: è il servizio di chi
+      sviluppa l'app, e i dati dell'account sono descritti sopra.</li>
+  <li><strong>Server NTP</strong> — per l'orario preciso, indispensabile ai modi
+      digitali. Non viene inviato alcun dato personale.</li>
+</ul>
+
+<p>Questi servizi sono gestiti da terzi e hanno regole proprie: se li usi, valgono
+anche le loro condizioni.</p>
+
+<h2>Quello che l'app NON fa</h2>
+<ul>
+  <li>Non usa la posizione del telefono: nessun permesso di localizzazione. Il
+      locatore è quello che digiti tu.</li>
+  <li>Non usa la fotocamera, e il permesso non viene nemmeno chiesto: lo
+      dichiarava il componente multimediale su cui l'app è costruita, ed è stato
+      tolto dal pacchetto perché nessuna funzione lo utilizza.</li>
+  <li>Non contiene pubblicità né strumenti di analisi o tracciamento.</li>
+  <li>Non condivide né vende dati a nessuno.</li>
+</ul>
+
+<h2>Conservazione e cancellazione</h2>
+<p>I dati stanno sul tuo dispositivo: disinstallando l'app spariscono con essa,
+tranne i file che hai esportato di tua iniziativa (per esempio il log ADIF). Quanto
+è già stato pubblicato sulle reti radioamatoriali segue le regole di quei servizi,
+ai quali devi rivolgerti direttamente.</p>
+
+<h2>Minori</h2>
+<p>L'app si rivolge ai radioamatori titolari di licenza e non è progettata per i
+minori di 13 anni.</p>
+
+<h2>Modifiche</h2>
+<p>Se questa informativa cambierà, la data in cima verrà aggiornata e la versione
+corrente resterà sempre a questo indirizzo.</p>
+
+<h2>Titolare del trattamento e contatti</h2>
+<p>Titolare del trattamento: <strong>Martino Merola (IU8LMC)</strong>, lo stesso
+indicato nell'informativa del sito <a href="https://www.ft2.it/privacy">ft2.it</a>,
+che riguarda invece il sito web e il forum.</p>
+<p>Per qualunque domanda, o per esercitare i diritti previsti dal GDPR (accesso,
+rettifica, cancellazione, opposizione): <strong>iu8lmc@gmail.com</strong></p>"""
+
 def page(titolo: str, corpo: str, utente=None, msg: str = "", errore: str = "",
-         banner: bool = True) -> bytes:
+         banner: bool = True, lingua: str = "", percorso: str = "") -> bytes:
     nav = '<a href="/scarica">scarica il client</a>'
     if utente:
         csrf = getattr(_richiesta, "csrf", "")
@@ -340,10 +543,15 @@ def page(titolo: str, corpo: str, utente=None, msg: str = "", errore: str = "",
     if msg:
         avviso += f'<div class="msg ok">{e(msg)}</div>'
     striscia = banner_scarica() if banner else ""
-    doc = f"""<!doctype html><html lang="it"><head><meta charset="utf-8">
+    # Il selettore compare solo dove la pagina e' davvero tradotta: metterlo sul
+    # pannello prometterebbe un tedesco che li' non c'e'.
+    if lingua:
+        nav += menu_lingue(lingua, percorso or "/")
+    lang_html = ts.testi(lingua)["html"] if lingua else "it"
+    doc = f"""<!doctype html><html lang="{lang_html}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{e(titolo)} — Decolink</title><style>{CSS}</style></head><body>
-<header><span class="logo">DECOLINK</span><span class="sp"></span>{nav}</header>
+<header><a href="/" class="logo">DECOLINK</a><span class="sp"></span>{nav}</header>
 <main>{striscia}{avviso}{corpo}</main>
 <footer>Decolink — gateway radio ad accesso controllato</footer></body></html>"""
     return doc.encode("utf-8")
@@ -459,6 +667,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, self.form_accesso())
             if percorso == "/registrati":
                 return self._send(200, self.form_registrazione(conn))
+            if percorso == "/privacy":
+                return self._send(200, page("privacy", PRIVACY_APP, utente,
+                                            banner=False))
             if percorso in ("/scarica", "/download"):
                 return self.pagina_scarica(conn, utente)
             if percorso == "/password":
@@ -637,7 +848,7 @@ l'accesso resta in attesa.</p>
 
     def pagina_home(self, conn, utente):
         if not utente:
-            return self._send(200, self.form_accesso())
+            return self.pagina_prima(conn, utente)
         if utente["status"] != db.ST_ACTIVE:
             corpo = f"""<div class="card"><h1>Accesso in attesa</h1>
 <p class="sub">La richiesta di <b>{e(utente['callsign'])}</b> è stata registrata
@@ -676,6 +887,108 @@ per i programmi che non sanno fare l'accesso — come le versioni di Decodium Mo
 precedenti al controllo accessi: la chiave si incolla al posto del nome della
 stanza. Decolink aggiornato non ne ha bisogno, fa il login da sé.</p></div>"""
         return self._send(200, page("stazioni", corpo, utente))
+
+    def _lingua(self) -> tuple[str, bool]:
+        """La lingua di chi sta leggendo, e se va scritta nel cookie.
+
+        Nell'ordine: quella chiesta con ?lang=, quella gia' scelta nel cookie,
+        quella del browser. Chi arriva da un paese qualsiasi trova la pagina
+        nella sua lingua senza cercare niente, ed e' lo stesso comportamento del
+        client, che prende la lingua di Windows.
+        """
+        q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        chiesta = ts.normalizza((q.get("lang") or [""])[0])
+        if chiesta:
+            return chiesta, True
+        salvata = ts.normalizza(self._cookie(COOKIE_LINGUA))
+        if salvata:
+            return salvata, False
+        return ts.lingua_del_browser(self.headers.get("Accept-Language", "")), False
+
+    def pagina_prima(self, conn, utente):
+        """La prima pagina: cos'e' Decolink, come si scarica, come funziona.
+
+        Prima qui c'era il modulo di accesso e basta: chi non aveva un account
+        vedeva due caselle e nessuna spiegazione, e il programma da scaricare
+        stava dietro una voce di menu. Ora la spiegazione viene prima, e il
+        modulo di accesso sta un clic piu' in la' per chi gia' sa cosa fare.
+        """
+        lingua, da_salvare = self._lingua()
+        t = ts.testi(lingua)
+        host = self.headers.get("Host", "decolink.ft2.it")
+        rel = ultima_release()
+
+        if rel and rel["file"]:
+            def peso(f):
+                n = f["nome"].lower()
+                return (0 if ("win" in n or n.endswith(".zip") or n.endswith(".exe")) else 1, n)
+            principale = sorted(rel["file"], key=peso)[0]
+            bottone = (f'<a class="scarica" href="{e(principale["url"])}">{e(t["scarica"])}</a>'
+                       f'<div class="sotto-btn">'
+                       + e(t["peso"]).format(versione=e(rel["tag"]), peso=principale["mb"])
+                       + '</div>')
+        else:
+            bottone = (f'<a class="scarica" href="{e(RELEASE_PAGINA)}">{e(t["vai_github"])}</a>'
+                       f'<div class="sotto-btn">{e(t["senza_ver"])}</div>')
+
+        # I passi contengono <b> e <a> voluti da noi, non testo di chi visita:
+        # non vanno passati da e(), o si vedrebbero i tag scritti in chiaro.
+        passo2 = t["passo2_si"] if utente else t["passo2_no"]
+        corpo = f"""
+<div class="hero prima">
+<h1>{e(t["claim"])}</h1>
+<p class="claim">{e(t["sotto"])}</p>
+{bottone}
+<div class="gia">{e(t["gia"])} <a href="/accedi">{e(t["accedi"])}</a>
+ &nbsp;·&nbsp; <a href="/registrati">{e(t["registrati"])}</a></div>
+</div>
+
+<div class="riquadri" style="margin-top:30px">
+  <div class="card"><b>{e(t["h_cosa"])}</b><p class="sub" style="margin:8px 0 0">
+  {e(t["p_cosa"])}</p></div>
+  <div class="card"><b>{e(t["h_serve"])}</b><p class="sub" style="margin:8px 0 0">
+  {e(t["p_serve"])}</p></div>
+  <div class="card"><b>{e(t["h_ovunque"])}</b><p class="sub" style="margin:8px 0 0">
+  {e(t["p_ovunque"])}</p></div>
+</div>
+
+<h2>{e(t["h_parte"])}</h2>
+<div class="card">
+  <div class="passo"><div class="n">1</div><div>{e(t["passo1"])}</div></div>
+  <div class="passo"><div class="n">2</div><div>{passo2}</div></div>
+  <div class="passo"><div class="n">3</div><div>{t["passo3"].format(host=e(host))}</div></div>
+  <div class="passo"><div class="n">4</div><div>{t["passo4"]}</div></div>
+</div>
+
+<h2>{e(t["h_come"])}</h2>
+<div class="card"><p class="sub" style="margin:0">{e(t["p_come"])}</p></div>
+<div class="modi" style="margin-top:14px">
+  <div class="card"><b>{e(t["m1_t"])}</b><p class="sub" style="margin:8px 0 0">
+  {e(t["m1_p"])}</p></div>
+  <div class="card"><b>{e(t["m2_t"])}</b><p class="sub" style="margin:8px 0 0">
+  {e(t["m2_p"])}</p></div>
+  <div class="card"><b>{e(t["m3_t"])}</b><p class="sub" style="margin:8px 0 0">
+  {e(t["m3_p"])}</p></div>
+</div>
+
+<h2>{e(t["h_banda"])}</h2>
+<div class="card"><p class="sub" style="margin:0">{e(t["p_banda"])}</p></div>
+
+<h2>{e(t["h_lingue"])}</h2>
+<div class="card"><p class="sub" style="margin:0">{e(t["p_lingue"])}</p></div>
+
+<p class="sub" style="font-size:13px;margin-top:26px">{e(t["sorgente"])}
+<a href="https://github.com/{e(GITHUB_REPO)}">github.com/{e(GITHUB_REPO)}</a></p>"""
+
+        extra = []
+        if da_salvare:
+            # Un anno: la lingua non e' una sessione, e chi torna fra sei mesi
+            # non deve ricominciare dall'italiano.
+            extra.append(("Set-Cookie",
+                          f"{COOKIE_LINGUA}={lingua}; Max-Age=31536000; Path=/; "
+                          f"SameSite=Lax"))
+        return self._send(200, page("Decolink", corpo, utente, banner=False,
+                                    lingua=lingua, percorso="/"), extra=extra)
 
     def pagina_stazione(self, conn, utente, slug):
         if not utente:

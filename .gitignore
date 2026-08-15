@@ -13,3 +13,7 @@ decolink.key
 
 # file di lavoro delle traduzioni
 gui/traduzioni/_elenco.json
+
+# copie di sicurezza fatte a mano prima di una modifica
+*.prima-*
+*.py.prima
