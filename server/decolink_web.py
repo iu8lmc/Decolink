@@ -160,6 +160,22 @@ footer a { color:#5d7ba3 }
 .passo .n { flex:0 0 26px; height:26px; border-radius:50%; background:rgba(0,229,255,.15);
             color:var(--ciano); font-weight:700; font-size:13px; display:flex;
             align-items:center; justify-content:center }
+
+/* Striscia di scaricamento in cima a ogni pagina. Una riga sola: deve dire
+   dove si prende il client senza rubare la pagina a quello che c'e' sotto. */
+.banner { display:flex; align-items:center; gap:14px; flex-wrap:wrap;
+          background:linear-gradient(90deg,rgba(0,229,255,.10),rgba(54,216,173,.07));
+          border:1px solid rgba(0,229,255,.3); border-radius:10px;
+          padding:11px 16px; margin-bottom:18px }
+.banner .gh { flex:0 0 auto; width:22px; height:22px; fill:var(--ciano) }
+.banner .testo { flex:1 1 220px; font-size:14px; color:#c9d8ea; line-height:1.45 }
+.banner .testo b { color:#e8edf5 }
+.banner .ver { color:var(--ciano); font-weight:700 }
+.banner .vai { flex:0 0 auto; background:linear-gradient(90deg,var(--ciano),var(--acqua));
+               color:#06131c; font-weight:700; font-size:14px; padding:9px 18px;
+               border-radius:8px; white-space:nowrap }
+.banner .vai:hover { filter:brightness(1.12); text-decoration:none }
+@media (max-width:520px) { .banner .vai { width:100% ; text-align:center } }
 """
 
 
@@ -264,7 +280,49 @@ def e(s) -> str:
 _richiesta = threading.local()
 
 
-def page(titolo: str, corpo: str, utente=None, msg: str = "", errore: str = "") -> bytes:
+# Il logo di GitHub disegnato dentro la pagina invece che preso da un CDN: e' una
+# richiesta in meno, e la striscia non resta monca se il CDN non risponde.
+GITHUB_SVG = ('<svg class="gh" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 '
+              '3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01'
+              '.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08'
+              '.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-'
+              '3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32'
+              '-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82'
+              '1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 '
+              '2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>')
+
+
+def banner_scarica() -> str:
+    """La striscia che dice dove si prende il client.
+
+    Sta in cima a tutte le pagine tranne quella di scaricamento, dove
+    ripeterebbe quello che c'e' gia' scritto sotto in grande.
+
+    La versione viene da GitHub: se non risponde, la striscia resta e manda alla
+    pagina delle release senza dichiarare un numero. Meglio nessun numero che un
+    numero vecchio: chi legge "v2.1.0" scarica quella e non sa di aver perso
+    l'ultima.
+    """
+    rel = ultima_release()
+    if rel and rel["file"]:
+        def peso(f):
+            n = f["nome"].lower()
+            return (0 if ("win" in n or n.endswith(".zip") or n.endswith(".exe")) else 1, n)
+        principale = sorted(rel["file"], key=peso)[0]
+        testo = (f'<b>Decolink <span class="ver">{e(rel["tag"])}</span></b> per Windows — '
+                 f'{principale["mb"]} MB, si scompatta e si avvia.')
+        dove = e(principale["url"])
+        etichetta = "Scarica da GitHub"
+    else:
+        testo = '<b>Decolink per Windows</b> — le versioni sono su GitHub.'
+        dove = e(RELEASE_PAGINA)
+        etichetta = "Vai su GitHub"
+    return (f'<div class="banner">{GITHUB_SVG}<div class="testo">{testo}</div>'
+            f'<a class="vai" href="{dove}">{etichetta}</a></div>')
+
+
+def page(titolo: str, corpo: str, utente=None, msg: str = "", errore: str = "",
+         banner: bool = True) -> bytes:
     nav = '<a href="/scarica">scarica il client</a>'
     if utente:
         csrf = getattr(_richiesta, "csrf", "")
@@ -281,11 +339,12 @@ def page(titolo: str, corpo: str, utente=None, msg: str = "", errore: str = "") 
         avviso += f'<div class="msg err">{e(errore)}</div>'
     if msg:
         avviso += f'<div class="msg ok">{e(msg)}</div>'
+    striscia = banner_scarica() if banner else ""
     doc = f"""<!doctype html><html lang="it"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{e(titolo)} — Decolink</title><style>{CSS}</style></head><body>
 <header><span class="logo">DECOLINK</span><span class="sp"></span>{nav}</header>
-<main>{avviso}{corpo}</main>
+<main>{striscia}{avviso}{corpo}</main>
 <footer>Decolink — gateway radio ad accesso controllato</footer></body></html>"""
     return doc.encode("utf-8")
 
@@ -1077,7 +1136,7 @@ controllo del rig viaggiano su internet, da casa al telefono, dovunque sia.</p>
 {altri}
 <p class="sub" style="font-size:13px">Codice sorgente e cronologia delle versioni:
 <a href="https://github.com/{e(GITHUB_REPO)}">github.com/{e(GITHUB_REPO)}</a></p>"""
-        return self._send(200, page("scarica", corpo, utente))
+        return self._send(200, page("scarica", corpo, utente, banner=False))
 
     # ------------------------------------------------------- password
 
