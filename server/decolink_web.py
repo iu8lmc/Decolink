@@ -730,6 +730,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.post_stazione_stato(conn, utente, dati)
             if percorso == "/chiave":
                 return self.post_chiave(conn, utente, dati)
+            if percorso == "/chiave-revoca":
+                return self.post_chiave_revoca(conn, utente, dati)
             if percorso == "/utente-cancella":
                 return self.post_utente_cancella(conn, utente, dati)
             if percorso == "/password":
@@ -887,8 +889,75 @@ collegamento viene richiesto da solo a ogni avvio.</p>
 <p class="sub" style="margin-top:14px;font-size:13px">Il pulsante <b>chiave</b> serve
 per i programmi che non sanno fare l'accesso — come le versioni di Decodium Mobile
 precedenti al controllo accessi: la chiave si incolla al posto del nome della
-stanza. Decolink aggiornato non ne ha bisogno, fa il login da sé.</p></div>"""
+stanza. Decolink aggiornato non ne ha bisogno, fa il login da sé.</p></div>
+{self._riquadro_chiavi(conn, utente, csrf)}"""
         return self._send(200, page("stazioni", corpo, utente))
+
+    def _riquadro_chiavi(self, conn, utente, csrf: str) -> str:
+        """Le chiavi emesse, con il pulsante per annullarle.
+
+        Una chiave vive trenta giorni fuori dal pannello, incollata dentro
+        un'applicazione: senza questo elenco, chi ne perde una puo' solo
+        aspettare che scada. Qui si vede quante ne sono in giro e si spengono
+        una per una.
+        """
+        chiavi = db.keys_of_user(conn, utente["id"])
+        if not chiavi:
+            return ""
+
+        righe = ""
+        for k in chiavi:
+            emessa = time.strftime("%d/%m/%Y", time.localtime(k["issued_at"]))
+            scade = time.strftime("%d/%m/%Y", time.localtime(k["expires_at"]))
+            if k["revoked_at"] is not None:
+                quando = time.strftime("%d/%m/%Y", time.localtime(k["revoked_at"]))
+                stato = f'<span class="tag lst">annullata il {e(quando)}</span>'
+                azione = ""
+            else:
+                stato = f'valida fino al <b>{e(scade)}</b>'
+                azione = (f'<form method="post" action="/chiave-revoca" class="inline">'
+                          f'<input type="hidden" name="csrf" value="{e(csrf)}">'
+                          f'<input type="hidden" name="jti" value="{e(k["jti"])}">'
+                          f'<button class="small danger">annulla</button></form>')
+            righe += (f'<tr><td><b>{e(k["slug"])}</b></td>'
+                      f'<td>{e(RUOLI_IT.get(k["role"], k["role"]))}</td>'
+                      f'<td class="sub">emessa il {e(emessa)}</td>'
+                      f'<td>{stato}</td><td>{azione}</td></tr>')
+
+        return f"""
+<h2>Chiavi di stazione emesse</h2>
+<div class="card"><table>
+<tr><th>stazione</th><th>ruolo</th><th>quando</th><th>stato</th><th></th></tr>
+{righe}</table>
+<p class="sub" style="margin-top:14px;font-size:13px">Annullare una chiave la ferma
+entro pochi secondi, anche se qualcuno la sta usando in quel momento. Non si può
+disfare: per tornare a collegarsi con un programma vecchio se ne emette un'altra.
+Le chiavi scadute non sono in elenco, non c'è niente da annullare in una chiave
+che non vale più.</p></div>"""
+
+    def post_chiave_revoca(self, conn, utente, dati):
+        """Annulla una chiave di stazione.
+
+        La può annullare chi l'ha emessa e il titolare della stazione: il primo
+        perché è sua, il secondo perché è la sua radio, ed è l'unico che può
+        sapere che la chiave di un suo operatore è finita dove non doveva.
+        """
+        jti = str(dati.get("jti", "")).strip()
+        k = db.key_by_jti(conn, jti)
+        if not k:
+            return self._redirect("/")
+
+        st = db.station_by_id(conn, k["station_id"])
+        suo = int(k["user_id"]) == int(utente["id"])
+        titolare = bool(st) and self._puo_gestire(conn, utente, st["id"])
+        if not (suo or titolare):
+            return self._send(403, page("vietato",
+                                        "<h1>Questa chiave non è tua</h1>", utente))
+
+        if db.revoke_key(conn, jti, reason=f"annullata da {utente['callsign']}"):
+            print(f"  {utente['callsign']} annulla la chiave {jti} "
+                  f"su '{st['slug'] if st else '?'}'")
+        return self._redirect("/" if suo else f"/stazione/{st['slug']}")
 
     def _lingua(self) -> tuple[str, bool]:
         """La lingua di chi sta leggendo, e se va scritta nel cookie.
@@ -1084,8 +1153,46 @@ L'<b>ascoltatore</b> riceve e basta.</p></div>
 
 <h2>Collegamenti</h2>
 <div class="card"><table>
-<tr><th>entrato</th><th>chi</th><th>ruolo</th><th>uscito</th><th>indirizzo</th></tr>{cn}</table></div>"""
+<tr><th>entrato</th><th>chi</th><th>ruolo</th><th>uscito</th><th>indirizzo</th></tr>{cn}</table></div>
+{self._chiavi_della_stazione(conn, st, csrf)}"""
         return self._send(200, page(f"stazione {slug}", corpo, utente))
+
+    def _chiavi_della_stazione(self, conn, st, csrf: str) -> str:
+        """Le chiavi vive di questa stazione, di chiunque siano.
+
+        Le vede il titolare perche' e' la sua radio: una chiave di un operatore
+        finita nelle mani sbagliate opera la stazione a nome suo, e chi ne
+        risponde deve poterla spegnere senza chiedere il permesso a nessuno.
+        """
+        chiavi = db.keys_of_station(conn, st["id"])
+        if not chiavi:
+            return ""
+        righe = ""
+        for k in chiavi:
+            emessa = time.strftime("%d/%m/%Y", time.localtime(k["issued_at"]))
+            scade = time.strftime("%d/%m/%Y", time.localtime(k["expires_at"]))
+            if k["revoked_at"] is not None:
+                quando = time.strftime("%d/%m/%Y", time.localtime(k["revoked_at"]))
+                stato, azione = f'<span class="tag lst">annullata il {e(quando)}</span>', ""
+            else:
+                stato = f'fino al <b>{e(scade)}</b>'
+                azione = (f'<form method="post" action="/chiave-revoca" class="inline">'
+                          f'<input type="hidden" name="csrf" value="{e(csrf)}">'
+                          f'<input type="hidden" name="jti" value="{e(k["jti"])}">'
+                          f'<button class="small danger">annulla</button></form>')
+            righe += (f'<tr><td><b>{e(k["callsign"])}</b></td>'
+                      f'<td>{e(RUOLI_IT.get(k["role"], k["role"]))}</td>'
+                      f'<td class="sub">emessa il {e(emessa)}</td>'
+                      f'<td>{stato}</td><td>{azione}</td></tr>')
+        return f"""
+<h2>Chiavi di stazione in circolazione</h2>
+<div class="card"><table>
+<tr><th>chi</th><th>ruolo</th><th>quando</th><th>stato</th><th></th></tr>
+{righe}</table>
+<p class="sub" style="margin-top:14px;font-size:13px">Sono chiavi che operano
+questa stazione senza passare dall'accesso, valide fino alla scadenza da
+qualunque dispositivo. Annullandone una, chi la sta usando viene chiuso entro
+pochi secondi.</p></div>"""
 
     def pagina_admin(self, conn, utente):
         if not utente:
@@ -1296,6 +1403,12 @@ L'<b>ascoltatore</b> riceve e basta.</p></div>
 
         chiave = tok.issue(SECRET, user_id=utente["id"], callsign=utente["callsign"],
                            station_id=st["id"], role=ruolo, ttl=CHIAVE_TTL)
+        # L'identificativo si rilegge dal token appena firmato invece di
+        # fabbricarlo qui: e' l'unico modo per essere certi di annotare quello
+        # che c'e' davvero dentro alla chiave che si sta consegnando.
+        dati_chiave = tok.verify(SECRET, chiave)
+        db.record_key(conn, dati_chiave["jti"], utente["id"], st["id"], ruolo,
+                      dati_chiave["expires"])
         scade = time.strftime("%d/%m/%Y", time.localtime(time.time() + CHIAVE_TTL))
         print(f"  chiave di stazione per {utente['callsign']} su '{st['slug']}' "
               f"({ruolo}), scade il {scade}")
@@ -1316,9 +1429,9 @@ a nome tuo.</p>
 
 <div class="msg err">
 <b>Trattala come una password.</b> Chi ce l'ha può operare la stazione come te,
-fino alla scadenza, da qualunque dispositivo. Se la perdi o non ti serve più:
-togliti e rimettiti il permesso su questa stazione dal pannello — le chiavi
-emesse prima smettono di funzionare entro pochi secondi.
+fino alla scadenza, da qualunque dispositivo. Se la perdi o non ti serve più,
+annullala dalla <a href="/">pagina delle tue stazioni</a>: smette di funzionare
+entro pochi secondi, anche per chi la sta usando in quel momento.
 </div>
 
 <p><a href="/">← torna alle stazioni</a></p>"""

@@ -98,6 +98,26 @@ CREATE TABLE IF NOT EXISTS revoked_tokens (
     reason        TEXT    NOT NULL DEFAULT ''
 );
 
+-- Le chiavi di stazione emesse. Una chiave e' un token firmato che vive
+-- trenta giorni fuori dal nostro controllo, incollato dentro un'applicazione
+-- che non sa fare l'accesso: se non si tiene nota di averla emessa, non c'e'
+-- modo di annullarla prima della scadenza, perche' per revocarla serve il suo
+-- identificativo e quello lo si vede una volta sola, al momento di emetterla.
+--
+-- La riga resta anche dopo la revoca: chi guarda deve poter vedere che una
+-- chiave c'e' stata e che e' stata annullata, non trovare il vuoto.
+CREATE TABLE IF NOT EXISTS issued_keys (
+    jti           TEXT    PRIMARY KEY,
+    user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    station_id    INTEGER NOT NULL REFERENCES stations(id) ON DELETE CASCADE,
+    role          TEXT    NOT NULL DEFAULT '',
+    issued_at     INTEGER NOT NULL,
+    expires_at    INTEGER NOT NULL,
+    revoked_at    INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_keys_user ON issued_keys(user_id);
+CREATE INDEX IF NOT EXISTS idx_keys_station ON issued_keys(station_id);
+
 -- Chi si e' collegato al relay e quando. Serve a rispondere alla domanda
 -- "chi c'era in stazione quel giorno".
 CREATE TABLE IF NOT EXISTS connections (
@@ -390,6 +410,67 @@ def revoke_token(conn, jti: str, expires_at: int, reason: str = "") -> None:
         "INSERT OR REPLACE INTO revoked_tokens (jti, expires_at, revoked_at, reason)"
         " VALUES (?,?,?,?)", (jti, int(expires_at), int(time.time()), reason))
     conn.commit()
+
+
+# --------------------------------------------------------- chiavi emesse
+
+def record_key(conn, jti: str, user_id: int, station_id: int, role: str,
+               expires_at: int) -> None:
+    """Prende nota di una chiave appena emessa, perche' si possa annullarla."""
+    conn.execute(
+        "INSERT OR REPLACE INTO issued_keys"
+        " (jti, user_id, station_id, role, issued_at, expires_at, revoked_at)"
+        " VALUES (?,?,?,?,?,?,NULL)",
+        (jti, int(user_id), int(station_id), role, int(time.time()), int(expires_at)))
+    conn.commit()
+
+
+def keys_of_user(conn, user_id: int):
+    """Le chiavi di un utente che non sono ancora scadute da sole.
+
+    Quelle scadute non si mostrano: non c'e' niente da revocare in una chiave
+    che non vale piu', e un elenco che si allunga per sempre smette di essere
+    guardato.
+    """
+    return conn.execute(
+        "SELECT k.*, s.slug FROM issued_keys k JOIN stations s ON s.id = k.station_id"
+        " WHERE k.user_id = ? AND k.expires_at > ? ORDER BY k.issued_at DESC",
+        (int(user_id), int(time.time()))).fetchall()
+
+
+def keys_of_station(conn, station_id: int):
+    """Le chiavi vive di una stazione, di chiunque siano.
+
+    Le vede il titolare: e' l'unico che puo' sapere se una chiave di un suo
+    operatore e' finita dove non doveva.
+    """
+    return conn.execute(
+        "SELECT k.*, u.callsign FROM issued_keys k JOIN users u ON u.id = k.user_id"
+        " WHERE k.station_id = ? AND k.expires_at > ? ORDER BY k.issued_at DESC",
+        (int(station_id), int(time.time()))).fetchall()
+
+
+def key_by_jti(conn, jti: str):
+    return conn.execute("SELECT * FROM issued_keys WHERE jti = ?", (jti,)).fetchone()
+
+
+def revoke_key(conn, jti: str, reason: str = "annullata dal pannello") -> bool:
+    """Annulla una chiave. Torna False se non c'era o era gia' annullata.
+
+    La revoca vera e' la riga in revoked_tokens: quella la rilegge il relay ogni
+    pochi secondi, e vale sia per chi prova a entrare sia per chi e' gia'
+    dentro. Il segno su issued_keys serve solo a raccontarlo a chi guarda.
+    """
+    riga = key_by_jti(conn, jti)
+    if not riga or riga["revoked_at"] is not None:
+        return False
+    now = int(time.time())
+    conn.execute(
+        "INSERT OR REPLACE INTO revoked_tokens (jti, expires_at, revoked_at, reason)"
+        " VALUES (?,?,?,?)", (jti, int(riga["expires_at"]), now, reason))
+    conn.execute("UPDATE issued_keys SET revoked_at = ? WHERE jti = ?", (now, jti))
+    conn.commit()
+    return True
 
 
 def revoked_ids(conn) -> set:
