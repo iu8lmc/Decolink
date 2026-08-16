@@ -11,12 +11,20 @@ from guida_testi import G as _G1
 from guida_testi2 import G2 as _G2
 from guida_testi3 import G3 as _G3
 from guida_testi4 import G4 as _G4
+from guida_testi5 import G5 as _G5
 
 TESTI = {}
 TESTI.update(_G1)
 TESTI.update(_G2)
 TESTI.update(_G3)
 TESTI.update(_G4)
+
+# L'aggiornamento alla v3 arriva per ultimo e sovrascrive: aggiunge la tabella
+# dei profili e corregge le frasi che la v2 diceva in modo ormai sbagliato. Sta
+# in un file suo perche' cosi' si legge cosa e' cambiato, invece di trovarselo
+# mescolato al testo di prima.
+for _cod, _agg in _G5.items():
+    TESTI.setdefault(_cod, {}).update(_agg)
 
 _ATTESE = set(TESTI["it"])
 for _cod, _blocco in TESTI.items():

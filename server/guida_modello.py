@@ -216,6 +216,27 @@ def costruisci(t: dict, e) -> str:
   </section>
 
   <section>
+    <h2>{e(t["h_prof"])}</h2>
+    <p>{e(t["prof_p"])}</p>
+    <div class="g-tabella">
+      <table>
+        <thead><tr>
+          <th>{e(t["prof_th1"])}</th><th>{e(t["prof_th2"])}</th><th>{e(t["prof_th3"])}</th>
+        </tr></thead>
+        <tbody>
+          <tr><th>{e(t["pr1"])}</th><td class="num">808 kbit/s</td><td>{e(t["pr1_q"])}</td></tr>
+          <tr><th>{e(t["pr2"])}</th><td class="num">232 kbit/s</td><td>{e(t["pr2_q"])}</td></tr>
+          <tr><th>{e(t["pr3"])}</th><td class="num">32 kbit/s</td><td>{e(t["pr3_q"])}</td></tr>
+          <tr><th>{e(t["pr4"])}</th><td class="num">20 kbit/s</td><td>{e(t["pr4_q"])}</td></tr>
+          <tr><th>{e(t["pr5"])}</th><td class="num">146 kbit/s</td><td>{e(t["pr5_q"])}</td></tr>
+          <tr><th>{e(t["pr6"])}</th><td class="num">{e(t["banda_cwkey"])}</td><td>{e(t["pr6_q"])}</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>{e(t["prof_fine"])}</p>
+  </section>
+
+  <section>
     <h2>{e(t["h_guai"])}</h2>
     <div class="g-sintomi">
       {sintomo(t["g1_m"], t["g1_c"])}
