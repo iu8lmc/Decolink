@@ -79,8 +79,23 @@ def load_secret(path: str) -> bytes:
         # andata male: meglio fermarsi che firmare con una chiave debole.
         raise TokenError(f"chiave di firma troppo corta in {path}")
 
+    # Due trappole, e sbagliano tutte e due allo stesso modo: la chiave tenuta
+    # in memoria appena creata non e' quella che si rileggera' al riavvio, e
+    # allora tutti i token firmati nel frattempo diventano falsi.
+    #
+    # La prima e' lo strip() qui sopra: se i byte casuali cominciano o finiscono
+    # con uno spazio, una tabulazione o un a capo, alla rilettura spariscono.
+    # Capita in circa un caso su venti, e si manifesta al primo riavvio.
+    # La seconda e' Windows: os.open senza O_BINARY apre in modalita' testo e
+    # trasforma ogni 0x0A in 0x0D 0x0A, allungando il file.
+    #
+    # Si evitano scartando le chiavi con whitespace ai bordi e aprendo in
+    # binario. La chiave e' casuale, scartarne qualcuna non toglie nulla.
     raw = secrets.token_bytes(48)
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    while raw[:1].isspace() or raw[-1:].isspace():
+        raw = secrets.token_bytes(48)
+    modo = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
+    fd = os.open(path, modo, 0o600)
     try:
         os.write(fd, raw)
     finally:
