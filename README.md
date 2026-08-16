@@ -1,4 +1,4 @@
-# hf-gateway
+# Decolink
 
 **Radio HF via internet per Decodium FT2/FT2-Link.** Due stazioni Decodium
 fanno QSO reali attraverso internet **senza dipendere dalla propagazione** —
