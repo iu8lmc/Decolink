@@ -45,6 +45,8 @@ import urllib.parse
 import urllib.request      # serve a chiedere a GitHub qual e' l'ultima release
 
 import traduzioni_sito_fine as ts   # i testi della prima pagina, in sedici lingue
+import guida                        # la guida passo passo, nelle stesse sedici
+import guida_modello
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import decolink_db as db
@@ -199,6 +201,83 @@ footer a { color:#5d7ba3 }
                      color:#c9d8ea; white-space:nowrap }
 .lingue .tendina a:hover { background:rgba(0,229,255,.12); text-decoration:none }
 .lingue .tendina a.qui { color:var(--ciano); font-weight:700 }
+
+/* ---- la guida, rifatta sui colori del sito ----
+   L'originale era una pagina a sé su fondo chiaro; qui vive dentro Decolink e
+   ne prende i colori, altrimenti sarebbe un foglio bianco incollato addosso. */
+.guida { display:flex; flex-direction:column; gap:38px; max-width:820px; margin:0 auto }
+.g-testata { display:flex; flex-direction:column; gap:13px; padding-top:8px }
+.g-testata .scala { height:26px; width:100%; display:block; color:var(--ciano) }
+.guida h1 { font-size:clamp(26px,4.6vw,38px); line-height:1.12; margin:0 }
+.g-sub { color:#c9d8ea; font-size:16px; max-width:66ch; margin:0 }
+.g-meta { display:flex; flex-wrap:wrap; gap:6px 18px; font-size:12px; color:#5d7ba3;
+          font-family:Consolas,ui-monospace,monospace }
+.guida section { display:flex; flex-direction:column; gap:16px }
+.guida h2 { font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.14em;
+            color:var(--ciano); margin:0; display:flex; align-items:center; gap:12px }
+.guida h2::after { content:""; flex:1; height:1px; background:var(--bordo) }
+.guida h3 { font-size:20px; font-weight:600; margin:0 }
+.guida p { margin:0; max-width:66ch; color:#c9d8ea }
+.g-griglia { display:grid; gap:14px; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)) }
+.g-griglia .scheda { border:1px solid var(--bordo); border-radius:10px; padding:16px 18px;
+                     background:var(--fondo2); display:flex; flex-direction:column; gap:6px }
+.g-griglia h4 { font-size:15px; margin:0; color:#e8edf5 }
+.g-griglia p { font-size:14px }
+.g-tabella { overflow-x:auto }
+.g-tabella table { border-collapse:collapse; width:100%; font-size:14px; min-width:540px }
+.g-tabella th, .g-tabella td { text-align:left; padding:10px 13px; vertical-align:top;
+                               border-bottom:1px solid var(--bordo) }
+.g-tabella thead th { font-size:11px; text-transform:uppercase; letter-spacing:.1em;
+                      color:#8fb3d9; border-bottom:1px solid #3a5580 }
+.g-tabella tbody th { color:#e8edf5; white-space:nowrap; font-weight:600 }
+.g-tabella td { color:#c9d8ea }
+.g-tabella .num { font-variant-numeric:tabular-nums; font-family:Consolas,ui-monospace,monospace }
+.g-percorso { background:var(--fondo2); border:1px solid var(--bordo); border-radius:12px;
+              padding:22px 24px; display:flex; flex-direction:column; gap:18px }
+.g-intestazione { display:flex; flex-direction:column; gap:5px }
+.g-sigla { font-family:Consolas,ui-monospace,monospace; font-size:11px; letter-spacing:.16em;
+           text-transform:uppercase; color:var(--ciano) }
+ol.g-passi { list-style:none; counter-reset:passo; margin:0; padding:0;
+             display:flex; flex-direction:column; gap:14px }
+ol.g-passi > li { counter-increment:passo; display:grid; grid-template-columns:30px 1fr;
+                  gap:13px; align-items:start; color:#e8edf5; font-size:15px }
+ol.g-passi > li::before { content:counter(passo);
+    font-family:Consolas,ui-monospace,monospace; font-size:12px; font-variant-numeric:tabular-nums;
+    color:var(--ciano); background:rgba(0,229,255,.13); width:30px; height:24px;
+    border-radius:5px; display:grid; place-items:center; margin-top:1px }
+ol.g-passi .dove { font-weight:700; color:#fff }
+ol.g-passi .nota { color:#8fb3d9; font-size:13.5px; display:block; margin-top:3px }
+dl.g-campi { margin:0; display:grid; grid-template-columns:minmax(110px,max-content) 1fr;
+             gap:7px 18px; align-items:baseline }
+dl.g-campi dt { font-size:13.5px; color:#8fb3d9 }
+dl.g-campi dd { margin:0; font-family:Consolas,ui-monospace,monospace; font-size:13.5px;
+                color:#e8edf5; overflow-wrap:anywhere }
+dl.g-campi .libero { font-family:inherit; color:#8fb3d9 }
+.guida code { font-family:Consolas,ui-monospace,monospace; font-size:.92em;
+              background:rgba(0,229,255,.10); color:#9fe9ff; padding:1.5px 6px; border-radius:4px }
+.g-avviso { border-left:3px solid var(--acqua); background:rgba(54,216,173,.08);
+            padding:14px 18px; border-radius:0 8px 8px 0; display:flex;
+            flex-direction:column; gap:6px }
+.g-avviso strong { color:var(--acqua); font-weight:700 }
+.g-avviso p { font-size:14px; max-width:none }
+.g-sintomi { display:flex; flex-direction:column }
+.g-sintomi .sintomo { display:grid; gap:5px; padding:14px 0; border-bottom:1px solid var(--bordo) }
+.g-sintomi .msg { font-family:Consolas,ui-monospace,monospace; font-size:13px; color:#e8edf5 }
+.g-sintomi .cura { font-size:14px; color:#c9d8ea }
+.g-piede { color:#5d7ba3; font-size:12.5px; border-top:1px solid var(--bordo); padding-top:18px }
+@media (max-width:560px) {
+  .g-percorso { padding:18px 16px }
+  dl.g-campi { grid-template-columns:1fr; gap:2px 0 }
+  dl.g-campi dd { margin-bottom:9px }
+}
+
+/* Richiamo alla guida sulla prima pagina */
+.g-invito { display:flex; align-items:center; gap:16px; flex-wrap:wrap;
+            border:1px solid var(--bordo); border-radius:12px; padding:18px 20px;
+            background:var(--fondo2) }
+.g-invito .testo { flex:1 1 260px }
+.g-invito b { display:block; color:#e8edf5; font-size:16px; margin-bottom:4px }
+.g-invito .sub { font-size:14px; margin:0 }
 
 /* Prima pagina */
 .prima h1 { font-size:34px; line-height:1.2; margin-bottom:10px }
@@ -672,6 +751,8 @@ class Handler(BaseHTTPRequestHandler):
                                             banner=False))
             if percorso in ("/scarica", "/download"):
                 return self.pagina_scarica(conn, utente)
+            if percorso in ("/guida", "/tutorial"):
+                return self.pagina_guida(conn, utente)
             if percorso == "/password":
                 return self.pagina_password(conn, utente)
             if percorso == "/recupera":
@@ -976,6 +1057,25 @@ che non vale più.</p></div>"""
             return salvata, False
         return ts.lingua_del_browser(self.headers.get("Accept-Language", "")), False
 
+    def pagina_guida(self, conn, utente):
+        """La guida passo passo, nella lingua di chi legge.
+
+        Sta su una pagina sua e non dentro la prima: sono ventimila caratteri, e
+        infilarli sotto la presentazione vorrebbe dire che chi arriva per
+        scaricare il programma se li trova in mezzo ai piedi. Dalla prima pagina
+        ci si arriva con un richiamo, che e' il modo in cui una guida si offre a
+        chi la cerca senza imporsi a chi non la cerca.
+        """
+        lingua, da_salvare = self._lingua()
+        t = guida.testi(lingua)
+        corpo = guida_modello.costruisci(t, e)
+        extra = []
+        if da_salvare:
+            extra.append(("Set-Cookie",
+                          f"{COOKIE_LINGUA}={lingua}; Max-Age=31536000; Path=/; SameSite=Lax"))
+        return self._send(200, page(t["titolo"], corpo, utente, banner=False,
+                                    lingua=lingua, percorso="/guida"), extra=extra)
+
     def pagina_prima(self, conn, utente):
         """La prima pagina: cos'e' Decolink, come si scarica, come funziona.
 
@@ -1035,6 +1135,14 @@ che non vale più.</p></div>"""
   <div class="passo"><div class="n">2</div><div>{passo2}</div></div>
   <div class="passo"><div class="n">3</div><div>{t["passo3"].format(host=e(host))}</div></div>
   <div class="passo"><div class="n">4</div><div>{t["passo4"]}</div></div>
+</div>
+
+<div class="g-invito" style="margin-top:16px">
+  <div class="testo">
+    <b>{e(guida.invito(lingua)[0])}</b>
+    <p class="sub">{e(guida.testi(lingua)["sottotitolo"])}</p>
+  </div>
+  <a class="vai" href="/guida">{e(guida.invito(lingua)[1])}</a>
 </div>
 
 <h2>{e(t["h_come"])}</h2>
