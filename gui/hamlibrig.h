@@ -17,9 +17,15 @@
 
 #pragma once
 
+#include <QElapsedTimer>
+#include <QHostAddress>
+#include <QHostInfo>
 #include <QList>
+#include <QPair>
 #include <QString>
+#include <QNetworkInterface>
 #include <QStringList>
+#include <QTcpSocket>
 
 extern "C" {
 #include <hamlib/rig.h>
@@ -84,8 +90,33 @@ public:
         // non c'entrano niente e non vanno toccati.
         m_perRete = (m_rig->caps->port_type == RIG_PORT_NETWORK
                      || m_rig->caps->port_type == RIG_PORT_UDP_NETWORK);
+
+        // Con una radio in rete si bussa prima, e con un'attesa decisa da noi:
+        // rig_open su un indirizzo che non risponde tiene fermo il programma
+        // ventuno secondi, e chi guarda vede una finestra morta.
+        //
+        // Vale solo per il TCP: l'UDP non si connette, non c'e' porta a cui
+        // bussare, e un tentativo andrebbe a vuoto sempre.
+        if (m_perRete && m_rig->caps->port_type == RIG_PORT_NETWORK) {
+            QString perche;
+            if (!rispondeQualcuno(porta, kAttesaRete, &perche)) {
+                m_errore = perche;
+                rig_cleanup(m_rig);
+                m_rig = nullptr;
+                return false;
+            }
+        }
+
         QByteArray const p = porta.toLocal8Bit();
         std::strncpy(m_rig->state.rigport.pathname, p.constData(), HAMLIB_FILPATHLEN - 1);
+        if (m_perRete) {
+            // Sulle letture il tempo lo si puo' accorciare, e conviene: dopo
+            // l'apertura il client interroga la radio ogni due secondi, sempre
+            // dal thread dell'interfaccia. Con i valori di fabbrica una radio
+            // che smette di rispondere blocca la finestra a ogni giro.
+            m_rig->state.rigport.timeout = kTimeoutRete;
+            m_rig->state.rigport.retry = 1;
+        }
         if (!m_perRete && baud > 0) {
             m_rig->state.rigport.parm.serial.rate = baud;
             m_rig->state.rigport.parm.serial.data_bits = bitDati;
@@ -99,7 +130,7 @@ public:
 
         int const err = rig_open(m_rig);
         if (err != RIG_OK) {
-            m_errore = QString::fromLatin1(rigerror(err));
+            m_errore = spiega(err);
             rig_cleanup(m_rig);
             m_rig = nullptr;
             return false;
@@ -126,6 +157,132 @@ public:
         for (ModelloRig const& r : modelli())
             if (r.numero == numero) return r.rete;
         return false;
+    }
+
+    // La porta su cui parla un rigctld quando non se ne indica una: e' quella
+    // che usa Hamlib se l'indirizzo e' scritto senza i due punti.
+    static constexpr quint16 kPortaRigctld = 4532;
+
+    // Quanto si aspetta un programma che tiene la radio. Un rigctld sulla stessa
+    // macchina risponde in un millesimo; uno in casa, sul WiFi, in qualche
+    // decina. Un secondo e mezzo e' larghissimo per entrambi e non congela
+    // niente se dall'altra parte non c'e' nessuno.
+    static constexpr int kAttesaRete = 1500;
+    static constexpr int kTimeoutRete = 1000;   // sulle letture, dopo l'apertura
+
+    // Il messaggio di Hamlib, ridotto a quello che serve.
+    //
+    // rigerror() in Hamlib 4.7 non restituisce una frase: restituisce il
+    // registro di debug accumulato, venti righe di netrigctl_transaction e
+    // read_string_generic con in fondo il motivo vero. Messo in un'etichetta
+    // e' un muro di testo che nasconde l'unica riga che l'utente puo' capire.
+    static QString spiega(int err)
+    {
+        QString const tutto = QString::fromLatin1(rigerror(err)).trimmed();
+        if (tutto.isEmpty()) return QObject::tr("errore %1 di Hamlib").arg(err);
+        // L'ultima riga non vuota e' il motivo; il resto e' il come ci si e'
+        // arrivati, che interessa a chi scrive Hamlib e non a chi usa la radio.
+        QStringList const righe = tutto.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+        for (int i = righe.size() - 1; i >= 0; --i) {
+            QString const r = righe.at(i).trimmed();
+            if (r.isEmpty() || r.endsWith(QLatin1Char(')')) || r.contains(QLatin1String("():")))
+                continue;
+            return r;
+        }
+        return righe.last().trimmed();
+    }
+
+    // Spezza "host:porta" in due. Gestisce anche la forma con le parentesi
+    // quadre, [::1]:4532, perche' in un indirizzo IPv6 i due punti ci sono gia'
+    // dentro e cercare l'ultimo non basterebbe.
+    static QPair<QString, quint16> dividiIndirizzo(const QString& testo,
+                                                   quint16 predefinita = kPortaRigctld)
+    {
+        QString s = testo.trimmed();
+        if (s.isEmpty()) return {QString(), predefinita};
+
+        if (s.startsWith(QLatin1Char('['))) {
+            int const chiusa = s.indexOf(QLatin1Char(']'));
+            if (chiusa > 0) {
+                QString const host = s.mid(1, chiusa - 1);
+                QString const resto = s.mid(chiusa + 1);
+                if (resto.startsWith(QLatin1Char(':'))) {
+                    bool ok = false;
+                    quint16 const p = quint16(resto.mid(1).toUInt(&ok));
+                    return {host, (ok && p) ? p : predefinita};
+                }
+                return {host, predefinita};
+            }
+        }
+        int const duePunti = s.lastIndexOf(QLatin1Char(':'));
+        // Piu' di un due punti senza parentesi quadre: e' un IPv6 nudo, che di
+        // porta non ne porta.
+        if (duePunti < 0 || s.count(QLatin1Char(':')) > 1) return {s, predefinita};
+        bool ok = false;
+        quint16 const p = quint16(s.mid(duePunti + 1).toUInt(&ok));
+        return {s.left(duePunti), (ok && p) ? p : predefinita};
+    }
+
+    // Se questo host e' la macchina su cui stiamo girando.
+    //
+    // La stessa macchina si scrive in molti modi: localhost, 127.0.0.1, ::1, il
+    // nome del computer, un indirizzo della propria scheda di rete. Servono
+    // tutti, perche' basta che ne sfugga uno per lasciar partire un
+    // collegamento a se stessi — che non fallisce: si pianta.
+    static bool indirizzoLocale(const QString& host)
+    {
+        QString const h = host.trimmed();
+        if (h.isEmpty()) return true;      // niente host: e' la macchina locale
+        if (h.compare(QLatin1String("localhost"), Qt::CaseInsensitive) == 0) return true;
+
+        QHostAddress ind(h);
+        if (!ind.isNull()) {
+            if (ind.isLoopback()) return true;
+            for (QHostAddress const& mio : QNetworkInterface::allAddresses())
+                if (mio.isEqual(ind, QHostAddress::TolerantConversion)) return true;
+            return false;
+        }
+        // Un nome, non un indirizzo: il nostro lo si riconosce senza chiedere al
+        // DNS, che qui costerebbe un'attesa per una domanda di cui sappiamo gia'
+        // la risposta.
+        QString const nostro = QHostInfo::localHostName();
+        return !nostro.isEmpty()
+               && (h.compare(nostro, Qt::CaseInsensitive) == 0
+                   || h.startsWith(nostro + QLatin1Char('.'), Qt::CaseInsensitive));
+    }
+
+    // Bussa alla porta prima di chiamare Hamlib.
+    //
+    // Serve perche' rig_open, se dall'altra parte non risponde nessuno, resta
+    // fermo ventuno secondi: e' il tempo che Windows impiega a rinunciare a un
+    // TCP che non risponde, e Hamlib non lo puo' accorciare — timeout e retry
+    // della sua struttura valgono sulle letture, non sulla connessione. Ventuno
+    // secondi dentro il thread dell'interfaccia sono una finestra ghiacciata e
+    // Windows che propone di chiudere il programma: da fuori si vede un crash.
+    //
+    // Qui il tempo lo decidiamo noi, e se non c'e' nessuno si rinuncia subito.
+    static bool rispondeQualcuno(const QString& indirizzo, int msAttesa, QString* perche)
+    {
+        QPair<QString, quint16> const dove = dividiIndirizzo(indirizzo);
+        if (dove.first.isEmpty()) {
+            if (perche) *perche = QObject::tr("indirizzo vuoto");
+            return false;
+        }
+        QTcpSocket prova;
+        prova.connectToHost(dove.first, dove.second);
+        if (!prova.waitForConnected(msAttesa)) {
+            if (perche) {
+                *perche = (prova.error() == QAbstractSocket::SocketTimeoutError
+                           || prova.state() == QAbstractSocket::ConnectingState)
+                    ? QObject::tr("nessuna risposta da %1:%2").arg(dove.first).arg(dove.second)
+                    : QObject::tr("%1:%2 — %3").arg(dove.first).arg(dove.second)
+                          .arg(prova.errorString());
+            }
+            prova.abort();
+            return false;
+        }
+        prova.disconnectFromHost();
+        return true;
     }
 
     qint64 frequenza()

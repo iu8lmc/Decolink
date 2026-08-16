@@ -27,7 +27,9 @@
 #include <QFormLayout>
 #include <QFrame>
 #include <QGroupBox>
+#include <QHostAddress>
 #include <QHostInfo>
+#include <QNetworkInterface>
 #include <QIcon>
 #include <QHBoxLayout>
 #include <QJsonArray>
@@ -310,6 +312,18 @@ public:
         return m_port && m_port->isOpen();
     }
     QString error() const { return m_error; }
+
+    // Se la radio la si raggiunge per rete invece che sulla seriale. Cambia il
+    // consiglio da dare quando smette di rispondere: una COM muta e' un cavo,
+    // un indirizzo muto e' un programma che si e' chiuso dall'altra parte.
+    bool viaRete() const
+    {
+#ifdef DECOLINK_CON_HAMLIB
+        return m_usaHamlib && m_ham.perRete();
+#else
+        return false;
+#endif
+    }
 
     // Esegue una riga di comando netrigctl e restituisce la risposta da mandare
     // indietro. Il telefono usa solo questi verbi: f, m, F <hz>, T <0|1>.
@@ -1334,15 +1348,20 @@ private slots:
                 m_catOn->setChecked(false);
                 return;
             }
-            // Se ci si collega a un rigctld sulla stessa porta su cui vorremmo
-            // servire il telefono, la nostra non si aprirebbe mai: meglio dirlo
-            // adesso che lasciare due errori da districare dopo.
-            if (perRete && dove.endsWith(QStringLiteral(":%1").arg(m_catTcpPort->value()))
-                && (dove.startsWith(QLatin1String("localhost"))
-                    || dove.startsWith(QLatin1String("127.0.0.1")))) {
-                m_catState->setText(tr("la porta TCP %1 e' la stessa a cui ti stai "
-                                                   "collegando: cambiane una")
-                                        .arg(m_catTcpPort->value()));
+            // Decolink fa da rigctld per il telefono: se lo si indica anche
+            // come programma che tiene la radio, si collega a se stesso. La
+            // richiesta parte dal thread dell'interfaccia e la risposta la
+            // dovrebbe scrivere lo stesso thread, che intanto sta aspettando:
+            // non arriva mai, e la finestra resta ferma finche' Windows non
+            // propone di chiudere il programma.
+            //
+            // Il controllo di prima guardava solo il testo, e bastava scrivere
+            // "localhost" senza porta — Hamlib ci mette la 4532 da sola — per
+            // passarci in mezzo.
+            if (perRete && puntaANoiStessi(dove)) {
+                m_catState->setText(tr("qui c'è Decolink stesso: scegli il programma "
+                                       "che tiene davvero la radio, o cambia la porta "
+                                       "TCP qui sotto"));
                 m_catOn->setChecked(false);
                 return;
             }
@@ -1394,20 +1413,53 @@ private slots:
                 connect(c, &QTcpSocket::disconnected, c, &QObject::deleteLater);
             }
         });
+        m_catMuti = 0;      // un CAT riacceso non eredita i silenzi di prima
         refreshCatState();
         m_catPoll.start();
         saveSettings();
     }
+
+#ifdef DECOLINK_CON_HAMLIB
+    // Se l'indirizzo indicato come "programma che tiene la radio" siamo noi.
+    //
+    // Non basta confrontare il testo: la stessa macchina si scrive in molti
+    // modi — localhost, 127.0.0.1, ::1, il nome del computer, un indirizzo
+    // della propria scheda di rete — e la porta puo' mancare del tutto, perche'
+    // Hamlib mette la 4532 quando non la si scrive. Sbagliare il confronto qui
+    // significa lasciar partire un collegamento a se stessi, che non fallisce:
+    // si pianta.
+    bool puntaANoiStessi(const QString& indirizzo) const
+    {
+        auto const dove = dl::HamlibRig::dividiIndirizzo(indirizzo);
+        // Porta diversa dalla nostra: chiunque risponda li', non siamo noi.
+        return dove.second == quint16(m_catTcpPort->value())
+               && dl::HamlibRig::indirizzoLocale(dove.first);
+    }
+#endif
 
     void refreshCatState()
     {
         if (!m_rig.isOpen()) return;
         qint64 const hz = m_rig.readFreq();
         QString const md = m_rig.readMode();
-        m_catState->setText(hz > 0
-            ? tr("rig: %1 MHz  %2   (TCP %3, e sul canale audio)")
-                  .arg(hz / 1e6, 0, 'f', 3).arg(md).arg(m_catTcpPort->value())
-            : QStringLiteral("rig non risponde sulla seriale"));
+        if (hz > 0) {
+            m_catMuti = 0;
+            m_catState->setText(tr("rig: %1 MHz  %2   (TCP %3, e sul canale audio)")
+                                    .arg(hz / 1e6, 0, 'f', 3).arg(md).arg(m_catTcpPort->value()));
+            return;
+        }
+
+        // Una radio in rete che smette di rispondere costa un'attesa a ogni
+        // giro, e i giri sono ogni due secondi: insistere vorrebbe dire tenere
+        // l'interfaccia perennemente impastata per qualcosa che non tornera'
+        // da solo. Dopo tre silenzi si smette e lo si dice.
+        if (++m_catMuti < 3) return;
+        bool const inRete = m_rig.viaRete();
+        m_catPoll.stop();
+        m_catState->setText(inRete
+            ? tr("il programma che tiene la radio ha smesso di rispondere — "
+                 "riaccendi il CAT quando è tornato")
+            : tr("rig non risponde sulla seriale"));
     }
 
     void onDatagram()
@@ -2266,6 +2318,7 @@ private:
     bool m_catWanted {false};
     QTcpServer* m_catServer {nullptr};
     QTimer m_catPoll;
+    int m_catMuti {0};      // letture consecutive senza risposta dalla radio
 
     QComboBox* m_rigOut;
     QComboBox* m_lingua {nullptr};
@@ -2867,6 +2920,78 @@ int main(int argc, char** argv)
         // Con "--hamlibtest host:porta" si prova la radio condivisa: ci si
         // collega a un programma che tiene lui la seriale, come farebbe l'utente
         // con rigctld o FLRig, e si comanda da li'.
+        // Come si legge un indirizzo, e quando quell'indirizzo siamo noi.
+        //
+        // E' il controllo che evita di collegarsi alla propria porta rigctld:
+        // la richiesta partirebbe dal thread dell'interfaccia e la risposta
+        // dovrebbe scriverla lo stesso thread, che intanto aspetta. Non arriva
+        // mai, la finestra si ferma, e da fuori si vede un programma che si
+        // pianta. Vale la pena provarlo qui, invece di fidarsi.
+        {
+            out << "\n  come vengono letti gli indirizzi:\n";
+            struct Caso { char const* testo; char const* host; quint16 porta; };
+            Caso const casi[] = {
+                {"localhost:4532",  "localhost",   4532},
+                {"localhost",       "localhost",   4532},   // la porta la mette Hamlib
+                {"127.0.0.1:12345", "127.0.0.1",  12345},
+                {"[::1]:4532",      "::1",         4532},
+                {"::1",             "::1",         4532},   // IPv6 nudo, niente porta
+                {"192.168.1.9:4532","192.168.1.9", 4532},
+                {"flrig.casa:12345","flrig.casa",  12345},
+            };
+            int storti = 0;
+            for (Caso const& c : casi) {
+                auto const d = dl::HamlibRig::dividiIndirizzo(QString::fromLatin1(c.testo));
+                bool const bene = (d.first == QLatin1String(c.host) && d.second == c.porta);
+                if (!bene) ++storti;
+                out << QStringLiteral("    %1%2 -> %3:%4\n")
+                           .arg(QString::fromLatin1(c.testo), -20)
+                           .arg(bene ? QStringLiteral("ok") : QStringLiteral("SBAGLIATO"), -10)
+                           .arg(d.first).arg(d.second);
+            }
+
+            out << "\n  indirizzi che sono questa stessa macchina:\n";
+            char const* miei[] = {"localhost", "127.0.0.1", "::1", ""};
+            for (char const* h : miei) {
+                bool const locale = dl::HamlibRig::indirizzoLocale(QString::fromLatin1(h));
+                if (!locale) ++storti;
+                out << QStringLiteral("    %1%2\n")
+                           .arg(QString::fromLatin1(*h ? h : "(vuoto)"), -20)
+                           .arg(locale ? QStringLiteral("riconosciuto")
+                                       : QStringLiteral("NON RICONOSCIUTO"));
+            }
+            // Il nome di questo computer e un indirizzo della sua scheda di rete
+            QString const nostro = QHostInfo::localHostName();
+            if (!nostro.isEmpty()) {
+                bool const l = dl::HamlibRig::indirizzoLocale(nostro);
+                if (!l) ++storti;
+                out << QStringLiteral("    %1%2\n").arg(nostro, -20)
+                           .arg(l ? QStringLiteral("riconosciuto")
+                                  : QStringLiteral("NON RICONOSCIUTO"));
+            }
+            for (QHostAddress const& mio : QNetworkInterface::allAddresses()) {
+                if (mio.isLoopback() || mio.protocol() != QAbstractSocket::IPv4Protocol) continue;
+                bool const l = dl::HamlibRig::indirizzoLocale(mio.toString());
+                if (!l) ++storti;
+                out << QStringLiteral("    %1%2\n").arg(mio.toString(), -20)
+                           .arg(l ? QStringLiteral("riconosciuto")
+                                  : QStringLiteral("NON RICONOSCIUTO"));
+                break;
+            }
+            // E uno che non lo e', per non festeggiare una funzione che dice
+            // sempre di si'
+            bool const estraneo = dl::HamlibRig::indirizzoLocale(QStringLiteral("192.0.2.1"));
+            if (estraneo) ++storti;
+            out << QStringLiteral("    %1%2\n").arg(QStringLiteral("192.0.2.1"), -20)
+                       .arg(estraneo ? QStringLiteral("SCAMBIATO PER NOSTRO")
+                                     : QStringLiteral("estraneo, giusto cosi'"));
+            if (storti) {
+                out << QStringLiteral("\n  %1 casi sbagliati\n").arg(storti);
+                out.flush();
+                return 7;
+            }
+        }
+
         {
             QStringList const a = app.arguments();
             int const i = a.indexOf(QStringLiteral("--hamlibtest"));

@@ -21,10 +21,12 @@ sys.path.insert(0, QUI)
 from dizionario import LINGUE, UGUALI, T          # noqa: E402
 from dizionario2 import T2                        # noqa: E402
 from dizionario3 import T3                        # noqa: E402
+from dizionario4 import T4                        # noqa: E402
 
 TUTTE = dict(T)
 TUTTE.update(T2)
 TUTTE.update(T3)
+TUTTE.update(T4)
 
 
 def traduzione(fonte: str, lingua: str):
