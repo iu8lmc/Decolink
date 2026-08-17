@@ -1,5 +1,14 @@
 cmake_minimum_required(VERSION 3.16)
-project(decolink LANGUAGES CXX)
+# La versione si scrive qui e da nessun'altra parte: da qui finisce
+# nell'eseguibile (VERSIONINFO, quello che Windows mostra nelle proprieta' del
+# file e scrive nei rapporti di errore), nel programma stesso e nell'installer.
+# Prima non c'era, e i rapporti di errore dicevano «versione 0.0.0.0»: davanti a
+# un crash non si sapeva nemmeno quale build fosse.
+project(decolink VERSION 2.3.0 LANGUAGES CXX)
+
+set(DECOLINK_AUTORE   "IU8LMC - Martino Merola")
+set(DECOLINK_SITO     "https://decolink.ft2.it")
+set(DECOLINK_DESCR    "Porta la radio su Decodium Mobile")
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -98,10 +107,17 @@ else()
     message(STATUS "lrelease non trovato: si usano i .qm gia' presenti")
 endif()
 
-# icona dell'eseguibile (Esplora risorse / barra applicazioni)
+# Icona e scheda della versione. Il .rc si genera dal modello, cosi' i numeri
+# vengono dalla versione del progetto e non da una copia scritta a mano.
+configure_file(versione.h.in ${CMAKE_CURRENT_BINARY_DIR}/versione.h @ONLY)
+include_directories(${CMAKE_CURRENT_BINARY_DIR})
 if(WIN32)
     enable_language(RC)
-    set(APP_ICON_RC hfgw.rc)
+    # Il .rc si compila nella cartella di build ma cerca l'icona accanto a se':
+    # il percorso dell'icona va reso assoluto o rc non la trova.
+    configure_file(hfgw.rc.in ${CMAKE_CURRENT_BINARY_DIR}/hfgw.rc @ONLY)
+    file(COPY hfgw.ico DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
+    set(APP_ICON_RC ${CMAKE_CURRENT_BINARY_DIR}/hfgw.rc)
 endif()
 
 qt_add_executable(decolink WIN32 main.cpp hfgw.qrc ${APP_ICON_RC})

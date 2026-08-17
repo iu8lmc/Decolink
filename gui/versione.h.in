@@ -1,0 +1,11 @@
+// versione.h — la versione del programma, generata da CMake.
+//
+// Sta scritta una volta sola, in CMakeLists.txt, e da li' arriva qui, nel
+// VERSIONINFO dell'eseguibile e nell'installer. Un numero ripetuto in tre posti
+// e' un numero che prima o poi diverge, e la versione che diverge la si scopre
+// quando serve di piu': davanti al rapporto di un crash.
+#pragma once
+
+#define DECOLINK_VERSIONE      "@PROJECT_VERSION@"
+#define DECOLINK_AUTORE_STR    "@DECOLINK_AUTORE@"
+#define DECOLINK_SITO_STR      "@DECOLINK_SITO@"

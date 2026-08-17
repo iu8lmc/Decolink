@@ -403,6 +403,30 @@ GITHUB_SVG = ('<svg class="gh" viewBox="0 0 16 16" aria-hidden="true"><path d="M
               '2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>')
 
 
+def per_chi_scarica(file_release: list) -> list:
+    """I file di una release, nell'ordine in cui conviene proporli.
+
+    Prima l'installer: si apre e installa, ed e' quello che serve a chi non
+    vuole pensarci. Poi l'archivio da scompattare, per chi tiene il programma su
+    una chiavetta o non puo' installare niente sul computer di stazione. Dopo,
+    tutto il resto.
+
+    Prima si guardava solo se il nome conteneva «win» o finiva in .zip, e con
+    due file per Windows nella stessa release usciva quello che veniva prima in
+    ordine alfabetico — cioe' a caso.
+    """
+    def peso(f):
+        n = f["nome"].lower()
+        if n.endswith(".exe") and ("installa" in n or "setup" in n or "install" in n):
+            return (0, n)
+        if n.endswith(".zip") and "win" in n:
+            return (1, n)
+        if n.endswith((".exe", ".zip", ".msi")):
+            return (2, n)
+        return (3, n)
+    return sorted(file_release, key=peso)
+
+
 COOKIE_LINGUA = "dl_lang"
 
 
@@ -436,10 +460,7 @@ def banner_scarica() -> str:
     """
     rel = ultima_release()
     if rel and rel["file"]:
-        def peso(f):
-            n = f["nome"].lower()
-            return (0 if ("win" in n or n.endswith(".zip") or n.endswith(".exe")) else 1, n)
-        principale = sorted(rel["file"], key=peso)[0]
+        principale = per_chi_scarica(rel["file"])[0]
         testo = (f'<b>Decolink <span class="ver">{e(rel["tag"])}</span></b> per Windows — '
                  f'{principale["mb"]} MB, si scompatta e si avvia.')
         dove = e(principale["url"])
@@ -1096,10 +1117,7 @@ che non vale più.</p></div>"""
         avviso = ts.avviso("eliminato", lingua) if q.get("eliminato") else ""
 
         if rel and rel["file"]:
-            def peso(f):
-                n = f["nome"].lower()
-                return (0 if ("win" in n or n.endswith(".zip") or n.endswith(".exe")) else 1, n)
-            principale = sorted(rel["file"], key=peso)[0]
+            principale = per_chi_scarica(rel["file"])[0]
             bottone = (f'<a class="scarica" href="{e(principale["url"])}">{e(t["scarica"])}</a>'
                        f'<div class="sotto-btn">'
                        + e(t["peso"]).format(versione=e(rel["tag"]), peso=principale["mb"])
@@ -1608,10 +1626,7 @@ entro pochi secondi, anche per chi la sta usando in quel momento.
         if rel and rel["file"]:
             # Prima l'eseguibile o l'archivio per Windows, che e' quello che
             # cerca il 99% di chi arriva su questa pagina.
-            def peso(f):
-                n = f["nome"].lower()
-                return (0 if ("win" in n or n.endswith(".zip") or n.endswith(".exe")) else 1, n)
-            fs = sorted(rel["file"], key=peso)
+            fs = per_chi_scarica(rel["file"])
             principale = fs[0]
             scaricato = sum(f["conta"] for f in rel["file"])
             bottone = (f'<a class="scarica" href="{e(principale["url"])}">'

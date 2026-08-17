@@ -1,0 +1,42 @@
+// Risorse dell'eseguibile: l'icona e la scheda della versione.
+//
+// Il blocco VERSIONINFO e' quello che Windows legge per le proprieta' del file,
+// e soprattutto quello che scrive nei rapporti di errore. Senza, ogni crash
+// arriva marcato «versione 0.0.0.0» e non si sa quale build guardare.
+//
+// Questo file lo genera CMake da hfgw.rc.in: i numeri vengono dalla versione
+// del progetto, cosi' non esiste il caso in cui l'eseguibile dice una versione
+// e l'installer un'altra.
+
+IDI_ICON1 ICON "hfgw.ico"
+
+1 VERSIONINFO
+FILEVERSION     @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,0
+PRODUCTVERSION  @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,0
+FILEFLAGSMASK   0x3fL
+FILEFLAGS       0x0L
+FILEOS          0x40004L      // VOS_NT_WINDOWS32
+FILETYPE        0x1L          // VFT_APP
+FILESUBTYPE     0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        // 0410 = italiano, 04b0 = Unicode
+        BLOCK "041004b0"
+        BEGIN
+            VALUE "CompanyName",      "@DECOLINK_AUTORE@"
+            VALUE "FileDescription",  "@DECOLINK_DESCR@"
+            VALUE "FileVersion",      "@PROJECT_VERSION@"
+            VALUE "InternalName",     "decolink"
+            VALUE "LegalCopyright",   "@DECOLINK_AUTORE@"
+            VALUE "OriginalFilename", "Decolink.exe"
+            VALUE "ProductName",      "Decolink"
+            VALUE "ProductVersion",   "@PROJECT_VERSION@"
+            VALUE "Comments",         "@DECOLINK_SITO@"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x410, 1200
+    END
+END

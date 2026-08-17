@@ -46,6 +46,7 @@
 #include <QPushButton>
 #include <QSerialPort>
 #include <QSerialPortInfo>
+#include <QScopeGuard>
 #include <QSettings>
 #include <QSpinBox>
 #include <QTcpServer>
@@ -58,6 +59,9 @@
 
 #include <QElapsedTimer>
 #include <QMutex>
+#ifdef Q_OS_WIN
+#include <windows.h>
+#endif
 #include <QMessageBox>
 #include <QProcess>
 
@@ -67,6 +71,7 @@
 #endif
 #include "dlproto.h"
 #include "lingua.h"
+#include "versione.h"   // generata da CMake
 #include "lossless.h"
 #include "opusvoce.h"
 #include "resample.h"
@@ -2407,6 +2412,38 @@ int main(int argc, char** argv)
 {
     QApplication app(argc, argv);
     app.setWindowIcon(QIcon(QStringLiteral(":/hfgw.ico")));
+    // Nome e versione dichiarati a Qt: finiscono nello user agent delle
+    // richieste al server e nelle finestre di sistema, e servono a chi guarda i
+    // registri per capire chi si e' collegato e con quale versione.
+    app.setApplicationName(QStringLiteral("Decolink"));
+    app.setApplicationVersion(QStringLiteral(DECOLINK_VERSIONE));
+    app.setOrganizationName(QStringLiteral("it.ft2"));
+
+#ifdef Q_OS_WIN
+    // Un contrassegno che dice «Decolink e' aperto». Lo cerca l'installer: i
+    // file di un programma in esecuzione non si possono sostituire, e
+    // accorgersene a meta' installazione lascia una cartella mezza aggiornata.
+    // Non impedisce di aprirne due copie, che a volte serve: dice solo che c'e'.
+    HANDLE const contrassegno = CreateMutexW(nullptr, FALSE, L"DecolinkInEsecuzione");
+    auto const chiudiContrassegno = qScopeGuard([contrassegno] {
+        if (contrassegno) CloseHandle(contrassegno);
+    });
+#endif
+
+    // --versione: la stampa e basta. Serve a chi segnala un guasto e deve dire
+    // quale copia sta usando, senza andare a cercare le proprieta' del file.
+    if (app.arguments().contains(QStringLiteral("--versione"))
+        || app.arguments().contains(QStringLiteral("--version"))) {
+        QTextStream out(stdout);
+        out << "Decolink " << DECOLINK_VERSIONE << "\n"
+            << DECOLINK_AUTORE_STR << "  " << DECOLINK_SITO_STR << "\n"
+            << "Qt " << qVersion() << ", libopus " << dl::OpusVoce::versione() << "\n";
+#ifdef DECOLINK_CON_HAMLIB
+        out << dl::HamlibRig::versione() << "\n";
+#endif
+        out.flush();
+        return 0;
+    }
 
     // La lingua prima di costruire qualunque cosa: le stringhe si traducono
     // quando i widget nascono, e un traduttore installato dopo non le tocca.
