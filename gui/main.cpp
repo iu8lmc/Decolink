@@ -132,6 +132,8 @@ QString foglioStile()
 QWidget { background:#0d1622; color:#e8edf5;
           font-family:"Helvetica Neue"; font-size:13px }
 QLabel#logo { font-size:16px; font-weight:800; letter-spacing:2px; color:#00e5ff }
+QLabel#versione { font-size:11px; color:#5d7ba3; font-family:Consolas,ui-monospace,monospace;
+                  padding:0 0 1px 2px }
 QLabel#titolo { font-size:11px; font-weight:700; letter-spacing:1.2px; color:#5d7ba3;
                 padding-bottom:2px }
 QLabel#minuscolo { font-size:10px; color:#5d7ba3; letter-spacing:.5px }
@@ -340,6 +342,88 @@ public:
 #endif
     }
 
+    // ALC, ROS e potenza in una riga, per la finestra di Decolink. Sono le
+    // stesse misure che vanno al telefono; vederle anche qui dice che la
+    // lettura funziona senza dover guardare l'altro apparecchio.
+    //
+    // Solo mentre la radio trasmette: a riposo un rosmetro non misura niente, e
+    // tre zeri fanno pensare a un guasto invece che a una radio che ascolta.
+    QString misuratori()
+    {
+#ifdef DECOLINK_CON_HAMLIB
+        if (!m_usaHamlib || !inTx()) return QString();
+        QStringList pezzi;
+        float v = 0.0f;
+        if (m_ham.livello(RIG_LEVEL_RFPOWER_METER_WATTS, v) && v > 0.0f)
+            pezzi << QStringLiteral("%1 W").arg(double(v), 0, 'f', 0);
+        else if (m_ham.livello(RIG_LEVEL_RFPOWER_METER, v))
+            pezzi << QStringLiteral("pot %1%").arg(double(v) * 100.0, 0, 'f', 0);
+        if (m_ham.livello(RIG_LEVEL_SWR, v) && v >= 1.0f)
+            pezzi << QStringLiteral("ROS %1").arg(double(v), 0, 'f', 1);
+        if (m_ham.livello(RIG_LEVEL_ALC, v))
+            pezzi << QStringLiteral("ALC %1%").arg(double(v) * 100.0, 0, 'f', 0);
+        return pezzi.join(QLatin1String("  "));
+#else
+        return QString();
+#endif
+    }
+
+    // Se la radio sta trasmettendo in questo momento.
+    bool inTx()
+    {
+#ifdef DECOLINK_CON_HAMLIB
+        if (m_usaHamlib) return m_ham.inTrasmissione();
+#endif
+        return false;
+    }
+
+    // Legge un misuratore e lo formatta come vuole rigctl.
+    //
+    // I nomi sono quelli di Hamlib, cosi' un client scritto per rigctl funziona
+    // senza sapere che dall'altra parte c'e' Decolink. Chi non ha Hamlib, o ha
+    // una radio che non espone quel misuratore, riceve RPRT -1: e' la risposta
+    // che rigctl da' per «questa radio non lo sa fare», e il telefono sa gia'
+    // come leggerla.
+    QString leggiLivello(const QString& quale)
+    {
+#ifdef DECOLINK_CON_HAMLIB
+        if (!m_usaHamlib) return QStringLiteral("RPRT -1\n");
+
+        // I livelli che hanno senso da remoto. Gli altri esistono, ma o non si
+        // guardano mentre si opera o non li ha quasi nessuna radio.
+        static const QHash<QString, setting_t> noti{
+            {QStringLiteral("ALC"),                  RIG_LEVEL_ALC},
+            {QStringLiteral("SWR"),                  RIG_LEVEL_SWR},
+            {QStringLiteral("RFPOWER_METER"),        RIG_LEVEL_RFPOWER_METER},
+            {QStringLiteral("RFPOWER_METER_WATTS"),  RIG_LEVEL_RFPOWER_METER_WATTS},
+            {QStringLiteral("RFPOWER"),              RIG_LEVEL_RFPOWER},
+            {QStringLiteral("COMP_METER"),           RIG_LEVEL_COMP_METER},
+            {QStringLiteral("VD_METER"),             RIG_LEVEL_VD_METER},
+            {QStringLiteral("ID_METER"),             RIG_LEVEL_ID_METER},
+            {QStringLiteral("TEMP_METER"),           RIG_LEVEL_TEMP_METER},
+        };
+
+        // STRENGTH e' l'S-meter e viaggia in dB relativi a S9: e' un intero, non
+        // una frazione, e va letto come tale o esce un numero senza senso.
+        if (quale == QLatin1String("STRENGTH")) {
+            int db = 0;
+            if (!m_ham.livelloIntero(RIG_LEVEL_STRENGTH, db)) return QStringLiteral("RPRT -1\n");
+            return QString::number(db) + QLatin1Char('\n');
+        }
+
+        auto const it = noti.constFind(quale);
+        if (it == noti.constEnd()) return QStringLiteral("RPRT -1\n");
+        float v = 0.0f;
+        if (!m_ham.livello(it.value(), v)) return QStringLiteral("RPRT -1\n");
+        // rigctl scrive i float con sei decimali: si resta su quel formato,
+        // perche' e' quello che i client si aspettano di dover interpretare.
+        return QString::number(double(v), 'f', 6) + QLatin1Char('\n');
+#else
+        Q_UNUSED(quale);
+        return QStringLiteral("RPRT -1\n");
+#endif
+    }
+
     // Esegue una riga di comando netrigctl e restituisce la risposta da mandare
     // indietro. Il telefono usa solo questi verbi: f, m, F <hz>, T <0|1>.
     QString handle(const QString& line)
@@ -385,6 +469,20 @@ public:
         // Comandi Yaesu grezzi, come il "w"/"W" di rigctl: servono per quello che
         // netrigctl non copre (potenza, misuratori). "w" invia e basta (i set
         // Yaesu non rispondono), "W" invia e restituisce la risposta.
+        // «l <LIVELLO>»: i misuratori. E' il comando con cui rigctl legge ALC,
+        // ROS, potenza e S-meter, ed e' quello che il telefono usa per mostrarli
+        // mentre si trasmette da remoto — senza, si manda in aria una radio di
+        // cui non si vede quanto eroga ne' se l'antenna risponde.
+        //
+        // Si risponde solo per i livelli che la radio ha davvero: una radio che
+        // non misura il ROS deve dire «non ce l'ho», non zero. Zero su un
+        // rosmetro vuol dire antenna perfetta, ed e' la bugia peggiore che si
+        // possa raccontare a chi sta per premere il PTT.
+        if (cmd.startsWith(QLatin1String("l "))) {
+            QString const quale = cmd.mid(2).trimmed().toUpper();
+            return leggiLivello(quale);
+        }
+
         // Sono comandi Yaesu grezzi: hanno senso solo se la seriale la teniamo
         // noi. Con una radio su Hamlib si risponde che non si puo' fare, invece
         // di dire «eseguito» senza aver mandato niente.
@@ -931,6 +1029,13 @@ public:
         auto* intestazione = new QLabel(QStringLiteral("DECOLINK"));
         intestazione->setObjectName(QStringLiteral("logo"));
 
+        // La versione accanto al nome: chi segnala un guasto la legge senza
+        // cercarla, e chi aggiorna vede subito se la copia che ha aperto e'
+        // quella nuova o la vecchia rimasta su un'altra cartella.
+        auto* versione = new QLabel(QStringLiteral(DECOLINK_VERSIONE));
+        versione->setObjectName(QStringLiteral("versione"));
+        versione->setToolTip(tr("versione di Decolink"));
+
         // Selettore della lingua: sta accanto al logo, dove si vede senza
         // cercarlo. Ogni voce e' scritta nella propria lingua, perche' chi apre
         // il programma in una lingua che non capisce deve poter riconoscere la
@@ -948,6 +1053,7 @@ public:
 
         auto* barra = new QHBoxLayout;
         barra->addWidget(intestazione);
+        barra->addWidget(versione);
         barra->addStretch(1);
         barra->addWidget(m_lingua);
 
@@ -1045,6 +1151,22 @@ public:
             saveSettings();
         });
         connect(m_password, &QLineEdit::returnPressed, this, [this]{ login(); });
+
+        // Ogni campo che l'utente puo' toccare scrive su disco da solo, poco
+        // dopo essere stato cambiato. Prima si salvava alla chiusura, e una
+        // chiusura mal riuscita si portava via tutta la configurazione.
+        m_salvaTardi.setSingleShot(true);
+        m_salvaTardi.setInterval(800);
+        connect(&m_salvaTardi, &QTimer::timeout, this, &Client::saveSettings);
+        for (QComboBox* c : {m_mode, m_device, m_profile, m_aggr, m_srate, m_station,
+                             m_catModel, m_catPort, m_catBaud, m_catDataBits,
+                             m_catParity, m_catStopBits, m_catFlow, m_rigOut})
+            connect(c, &QComboBox::currentIndexChanged, this, [this](int){ salvaFraPoco(); });
+        for (QLineEdit* e : {m_host, m_authHost, m_email, m_catRete, m_catCivAddr})
+            connect(e, &QLineEdit::textEdited, this, [this](const QString&){ salvaFraPoco(); });
+        for (QSpinBox* sb : {m_port, m_catTcpPort})
+            connect(sb, &QSpinBox::valueChanged, this, [this](int){ salvaFraPoco(); });
+        connect(m_remember, &QCheckBox::toggled, this, [this](bool){ salvaFraPoco(); });
         // Cambiare stazione a collegamento aperto richiede un token nuovo: il
         // vecchio vale solo per la stazione per cui e' stato emesso.
         connect(m_station, &QComboBox::activated, this, [this](int){
@@ -1470,8 +1592,14 @@ private slots:
         QString const md = m_rig.readMode();
         if (hz > 0) {
             m_catMuti = 0;
-            m_catState->setText(tr("rig: %1 MHz  %2   (TCP %3, e sul canale audio)")
-                                    .arg(hz / 1e6, 0, 'f', 3).arg(md).arg(m_catTcpPort->value()));
+            QString riga = tr("rig: %1 MHz  %2   (TCP %3, e sul canale audio)")
+                               .arg(hz / 1e6, 0, 'f', 3).arg(md).arg(m_catTcpPort->value());
+            // Mentre si trasmette si aggiungono i misuratori, se la radio li ha:
+            // sono la stessa cosa che va al telefono, e vederli qui dice che la
+            // lettura funziona senza dover guardare l'altro apparecchio.
+            QString const mis = m_rig.misuratori();
+            if (!mis.isEmpty()) riga += QLatin1String("   ") + mis;
+            m_catState->setText(riga);
             return;
         }
 
@@ -2258,7 +2386,18 @@ private:
         // dall'altra parte. Il risparmio si sceglie, non si subisce.
         int const si = m_srate->findData(s.value(QStringLiteral("srate"), 48000).toInt());
         if (si >= 0) m_srate->setCurrentIndex(si);
-        m_catModel->setCurrentIndex(s.value(QStringLiteral("catModel"), 1).toInt());
+        // Il numero del modello, con ripiego sulla vecchia chiave per chi
+        // aggiorna: la posizione salvata prima vale ancora finche' l'elenco e'
+        // quello di allora, ed e' meglio di far ripartire tutti da zero.
+        if (s.contains(QStringLiteral("catModelNum"))) {
+            int const num = s.value(QStringLiteral("catModelNum")).toInt();
+            int const idx = m_catModel->findData(num);
+            if (idx >= 0) m_catModel->setCurrentIndex(idx);
+        } else {
+            m_catModel->setCurrentIndex(s.value(QStringLiteral("catModel"), 1).toInt());
+        }
+        m_catRete->setText(s.value(QStringLiteral("catRete"),
+                                   QStringLiteral("localhost:4532")).toString());
         m_catCivAddr->setText(s.value(QStringLiteral("catCivAddr"), QStringLiteral("0x94")).toString());
         m_catBaud->setCurrentText(s.value(QStringLiteral("catBaud"), QStringLiteral("115200")).toString());
         m_catDataBits->setCurrentText(s.value(QStringLiteral("catDataBits"), QStringLiteral("8")).toString());
@@ -2275,6 +2414,23 @@ private:
         QString const dev = s.value(QStringLiteral("device")).toString();
         int const i = m_device->findText(dev);
         if (i >= 0) m_device->setCurrentIndex(i);
+    }
+
+    // Salva fra poco, non adesso.
+    //
+    // Le impostazioni si scrivevano alla chiusura della finestra e in pochi
+    // altri momenti. Bastava che il programma si chiudesse male — ed e' successo
+    // — perche' tutto quello che si era appena impostato sparisse: il
+    // distruttore non viene eseguito, e sul disco resta la configurazione di
+    // ieri. Chi aveva passato dieci minuti a scegliere radio, porta e indirizzo
+    // li ritrovava vuoti.
+    //
+    // Ora ogni scelta finisce su disco da sola. Il ritardo serve a non riscrivere
+    // il file a ogni tasto premuto mentre si digita un indirizzo: si aspetta che
+    // la mano si fermi.
+    void salvaFraPoco()
+    {
+        m_salvaTardi.start();
     }
 
     void saveSettings()
@@ -2298,7 +2454,13 @@ private:
         // sul disco allungherebbe soltanto la vita a una credenziale rubata.
         s.setValue(QStringLiteral("device"), m_device->currentText());
         s.setValue(QStringLiteral("catPort"), m_catPort->currentText().section(QLatin1Char(' '), 0, 0));
-        s.setValue(QStringLiteral("catModel"), m_catModel->currentIndex());
+        // Il modello si salva per numero, non per posizione nell'elenco. Le
+        // voci arrivano da Hamlib e sono trecentododici: basta una versione
+        // diversa della libreria, o un modello in piu', e la posizione di ieri
+        // oggi e' un'altra radio. Chi riapriva il programma si ritrovava
+        // scelto un apparato che non aveva mai visto.
+        s.setValue(QStringLiteral("catModelNum"), m_catModel->currentData().toInt());
+        s.setValue(QStringLiteral("catRete"), m_catRete->text());
         s.setValue(QStringLiteral("catCivAddr"), m_catCivAddr->text());
         s.setValue(QStringLiteral("catBaud"), m_catBaud->currentText());
         s.setValue(QStringLiteral("catDataBits"), m_catDataBits->currentText());
@@ -2344,6 +2506,7 @@ private:
     bool m_catWanted {false};
     QTcpServer* m_catServer {nullptr};
     QTimer m_catPoll;
+    QTimer m_salvaTardi;
     int m_catMuti {0};      // letture consecutive senza risposta dalla radio
 
     QComboBox* m_rigOut;
@@ -3010,6 +3173,13 @@ int main(int argc, char** argv)
                 {"w FA;",      "RPRT -1"},    // comando grezzo: senza seriale non si puo'
                 {"W FA;",      "RPRT -1"},
                 {"M PIZZA",    "RPRT -1"},    // modo inventato: va rifiutato
+                // I misuratori: la radio finta di Hamlib li espone, e sono
+                // quelli che il telefono mostra mentre si trasmette.
+                {"l ALC",              nullptr},
+                {"l SWR",              nullptr},
+                {"l RFPOWER_METER",    nullptr},
+                {"l STRENGTH",         nullptr},
+                {"l PIZZA",            "RPRT -1"},   // livello inventato: rifiutato
             };
             int storti = 0;
             for (Prova const& p : prove) {

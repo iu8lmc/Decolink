@@ -150,3 +150,11 @@ T4["nessuna risposta da %1:%2"] = {
 T4["%1:%2 — %3"] = {l: "%1:%2 — %3" for l in
                     ["en", "de", "fr", "es", "pt", "nl", "ca", "da", "hu", "ro",
                      "lv", "ru", "ja", "zh", "zh_TW"]}
+
+T4["versione di Decolink"] = {
+ "en": "Decolink version", "de": "Decolink-Version", "fr": "version de Decolink",
+ "es": "versión de Decolink", "pt": "versão do Decolink", "nl": "versie van Decolink",
+ "ca": "versió del Decolink", "da": "Decolink-version", "hu": "a Decolink verziója",
+ "ro": "versiunea Decolink", "lv": "Decolink versija", "ru": "версия Decolink",
+ "ja": "Decolink のバージョン", "zh": "Decolink 版本", "zh_TW": "Decolink 版本",
+}

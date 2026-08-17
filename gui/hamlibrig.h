@@ -27,6 +27,8 @@
 #include <QStringList>
 #include <QTcpSocket>
 
+#include <cstring>
+
 extern "C" {
 #include <hamlib/rig.h>
 }
@@ -352,6 +354,48 @@ public:
         if (!m_rig) return false;
         int const err = rig_set_ptt(m_rig, RIG_VFO_CURR, on ? RIG_PTT_ON : RIG_PTT_OFF);
         if (err != RIG_OK) { m_errore = QString::fromLatin1(rigerror(err)); return false; }
+        return true;
+    }
+
+    // ------------------------------------------------------------ misuratori
+    //
+    // ALC, ROS e potenza sono quello che si guarda mentre si trasmette, ed e'
+    // proprio quello che manca a chi opera da remoto: senza, si manda in aria
+    // una radio di cui non si vede ne' quanto sta erogando ne' se l'antenna
+    // sta rispondendo.
+    //
+    // Hamlib li chiama «livelli» e non tutte le radio li hanno: si chiede prima
+    // se questo apparato sa rispondere, invece di interrogarlo e prendersi un
+    // errore per qualcosa che non ha mai avuto.
+    bool haLivello(setting_t quale) const
+    {
+        return m_rig && (rig_has_get_level(m_rig, quale) != 0);
+    }
+
+    // Il valore grezzo di un livello. Torna false se la radio non lo espone o
+    // se la lettura fallisce: chi chiama deve poter distinguere «zero» da
+    // «non lo so», che su un misuratore sono due cose diverse.
+    bool livello(setting_t quale, float& fuori)
+    {
+        if (!m_rig || !haLivello(quale)) return false;
+        value_t v;
+        std::memset(&v, 0, sizeof(v));
+        int const err = rig_get_level(m_rig, RIG_VFO_CURR, quale, &v);
+        if (err != RIG_OK) { m_errore = spiega(err); return false; }
+        // I livelli dei misuratori sono float; STRENGTH e' l'eccezione, e la
+        // gestisce chi la chiede.
+        fuori = v.f;
+        return true;
+    }
+
+    bool livelloIntero(setting_t quale, int& fuori)
+    {
+        if (!m_rig || !haLivello(quale)) return false;
+        value_t v;
+        std::memset(&v, 0, sizeof(v));
+        int const err = rig_get_level(m_rig, RIG_VFO_CURR, quale, &v);
+        if (err != RIG_OK) { m_errore = spiega(err); return false; }
+        fuori = v.i;
         return true;
     }
 

@@ -4,27 +4,27 @@
 <context>
     <name>Client</name>
     <message>
-        <location filename="../main.cpp" line="571" />
+        <location filename="../main.cpp" line="695" />
         <source>Decolink — la radio su Decodium Mobile</source>
         <translation>Decolink — 在 Decodium Mobile 上使用電台</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="578" />
+        <location filename="../main.cpp" line="702" />
         <source>LAN diretta</source>
         <translation>區域網路直連</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="579" />
+        <location filename="../main.cpp" line="703" />
         <source>Relay + stazione</source>
         <translation>中繼 + 電台</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="580" />
+        <location filename="../main.cpp" line="704" />
         <source>Il telefono chiama casa</source>
         <translation>手機主動回連</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="581" />
+        <location filename="../main.cpp" line="705" />
         <source>LAN diretta — il telefono è sulla stessa rete: gli si manda l'audio all'indirizzo
 Relay + stazione — funziona ovunque, anche su dati mobili: PC e telefono
    escono entrambi verso il relay, quindi non c'è nessun router da configurare
@@ -35,32 +35,32 @@ Il telefono chiama casa — porta inoltrata sul router e nome DynDNS</source>
 手機主動回連 — 需要路由器連接埠轉發和 DynDNS 名稱</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="588" />
+        <location filename="../main.cpp" line="712" />
         <source>IP del telefono, oppure host del relay</source>
         <translation>手機 IP 或中繼伺服器</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="592" />
+        <location filename="../main.cpp" line="716" />
         <source>(accedi per scegliere la stazione)</source>
         <translation>(登入後選擇電台)</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="616" />
+        <location filename="../main.cpp" line="740" />
         <source>48 kHz</source>
         <translation>48 kHz</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="617" />
+        <location filename="../main.cpp" line="741" />
         <source>24 kHz</source>
         <translation>24 kHz</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="618" />
+        <location filename="../main.cpp" line="742" />
         <source>12 kHz</source>
         <translation>12 kHz</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="619" />
+        <location filename="../main.cpp" line="743" />
         <source>Quanti campioni al secondo mandare.
 48 kHz — 808 kbit/s, 364 MB l'ora: sicuro con qualunque programma
 24 kHz — 424 kbit/s, 191 MB l'ora
@@ -77,32 +77,32 @@ dichiarata: torna a 48 kHz.</source>
 如果手機聽起來變快，表示它沒有讀取宣告的取樣率：請改回 48 kHz。</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="629" />
+        <location filename="../main.cpp" line="753" />
         <source>PCM</source>
         <translation>PCM</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="630" />
+        <location filename="../main.cpp" line="754" />
         <source>Voce (Opus)</source>
         <translation>語音 (Opus)</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="631" />
+        <location filename="../main.cpp" line="755" />
         <source>CW (Opus)</source>
         <translation>CW (Opus)</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="632" />
+        <location filename="../main.cpp" line="756" />
         <source>Digitali senza perdite</source>
         <translation>數位模式（無損）</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="633" />
+        <location filename="../main.cpp" line="757" />
         <source>CW a tasto</source>
         <translation>僅 CW 鍵控</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="634" />
+        <location filename="../main.cpp" line="758" />
         <source>PCM — compatibile con tutti, nessuna compressione
 Voce — Opus a 32 kbit/s: serve un programma aggiornato dall'altra parte
 CW — Opus a banda stretta, 20 kbit/s
@@ -117,22 +117,22 @@ CW 鍵控 — 僅鍵控節奏，2.4 kbit/s：會失去
 全部環境資訊（QSB、QRM、在頻率旁呼叫的人）</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="645" />
+        <location filename="../main.cpp" line="769" />
         <source>20 ms</source>
         <translation>20 ms</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="646" />
+        <location filename="../main.cpp" line="770" />
         <source>40 ms</source>
         <translation>40 ms</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="647" />
+        <location filename="../main.cpp" line="771" />
         <source>60 ms</source>
         <translation>60 ms</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="649" />
+        <location filename="../main.cpp" line="773" />
         <source>Quanti frame mettere in un pacchetto: meno pacchetti, meno
 intestazioni da pagare, ma un po' più di ritardo.
 20 ms — latenza minima
@@ -144,87 +144,87 @@ intestazioni da pagare, ma un po' più di ritardo.
 60 ms — 減少 24%，適合按流量計費的網路</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="662" />
+        <location filename="../main.cpp" line="786" />
         <source>Audio radio</source>
         <translation>電台音訊</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="663" />
+        <location filename="../main.cpp" line="787" />
         <source>Modalità</source>
         <translation>連線方式</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="664" />
+        <location filename="../main.cpp" line="788" />
         <source>Host</source>
         <translation>主機</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="671" />
+        <location filename="../main.cpp" line="795" />
         <source>stazione</source>
         <translation>電台</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="675" />
+        <location filename="../main.cpp" line="799" />
         <source>Porta</source>
         <translation>連接埠</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="683" />
+        <location filename="../main.cpp" line="807" />
         <source>Profilo</source>
         <translation>設定檔</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="684" />
+        <location filename="../main.cpp" line="808" />
         <source>Campionamento</source>
         <translation>取樣率</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="685" />
+        <location filename="../main.cpp" line="809" />
         <source>Pacchetti da</source>
         <translation>封包時長</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="691" />
-        <location filename="../main.cpp" line="697" />
+        <location filename="../main.cpp" line="815" />
+        <location filename="../main.cpp" line="821" />
         <source>▸  Impostazioni avanzate</source>
         <translation>▸  進階設定</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="696" />
+        <location filename="../main.cpp" line="820" />
         <source>▾  Impostazioni avanzate</source>
         <translation>▾  進階設定</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="703" />
-        <location filename="../main.cpp" line="2182" />
-        <location filename="../main.cpp" line="2442" />
+        <location filename="../main.cpp" line="827" />
+        <location filename="../main.cpp" line="2336" />
+        <location filename="../main.cpp" line="2663" />
         <source>Avvia</source>
         <translation>啟動</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="709" />
-        <location filename="../main.cpp" line="2184" />
+        <location filename="../main.cpp" line="833" />
+        <location filename="../main.cpp" line="2338" />
         <source>fermo</source>
         <translation>已停止</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="712" />
-        <location filename="../main.cpp" line="2003" />
+        <location filename="../main.cpp" line="836" />
+        <location filename="../main.cpp" line="2157" />
         <source>—</source>
         <translation>—</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="722" />
+        <location filename="../main.cpp" line="846" />
         <source>Yaesu — comandi nativi</source>
         <translation>Yaesu — comandi nativi</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="723" />
+        <location filename="../main.cpp" line="847" />
         <source>Icom IC-7300 — CI-V nativo</source>
         <translation>Icom IC-7300 — CI-V nativo</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="739" />
+        <location filename="../main.cpp" line="863" />
         <source>Hamlib %1 — %2 modelli riconosciuti.
 I primi due sono i protocolli scritti dentro Decolink;
 gli altri passano da Hamlib, la stessa libreria che usa
@@ -234,12 +234,12 @@ Decodium sul desktop.</source>
 其餘透過 Hamlib，與桌面版 Decodium 使用同一個函式庫。</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="748" />
+        <location filename="../main.cpp" line="872" />
         <source>host:porta del programma che tiene la radio</source>
         <translation>占用電台的程式的 主機:連接埠</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="750" />
+        <location filename="../main.cpp" line="874" />
         <source>Indirizzo del programma che tiene la porta seriale.
 rigctld e i programmi compatibili: localhost:4532
 FLRig: localhost:12345
@@ -255,89 +255,89 @@ FLRig：localhost:12345
 序列埠屬於先開啟它的程式，兩個程式無法共用。</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="763" />
+        <location filename="../main.cpp" line="887" />
         <source>115200</source>
         <translation>115200</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="765" />
+        <location filename="../main.cpp" line="889" />
         <source>7</source>
         <translation>7</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="766" />
-        <location filename="../main.cpp" line="767" />
+        <location filename="../main.cpp" line="890" />
+        <location filename="../main.cpp" line="891" />
         <source>8</source>
         <translation>8</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="769" />
+        <location filename="../main.cpp" line="893" />
         <source>nessuna</source>
         <translation>無</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="770" />
+        <location filename="../main.cpp" line="894" />
         <source>pari</source>
         <translation>偶</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="771" />
+        <location filename="../main.cpp" line="895" />
         <source>dispari</source>
         <translation>奇</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="773" />
+        <location filename="../main.cpp" line="897" />
         <source>1</source>
         <translation>1</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="774" />
+        <location filename="../main.cpp" line="898" />
         <source>2</source>
         <translation>2</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="777" />
+        <location filename="../main.cpp" line="901" />
         <source>nessuno</source>
         <translation>無</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="778" />
+        <location filename="../main.cpp" line="902" />
         <source>RTS/CTS</source>
         <translation>RTS/CTS</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="779" />
+        <location filename="../main.cpp" line="903" />
         <source>XON/XOFF</source>
         <translation>XON/XOFF</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="781" />
+        <location filename="../main.cpp" line="905" />
         <source>Servi il CAT al telefono</source>
         <translation>向手機提供 CAT</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="782" />
-        <location filename="../main.cpp" line="1315" />
+        <location filename="../main.cpp" line="906" />
+        <location filename="../main.cpp" line="1463" />
         <source>CAT spento</source>
         <translation>CAT 已關閉</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="785" />
+        <location filename="../main.cpp" line="909" />
         <source>(nessuna: non trasmettere)</source>
         <translation>（無：不發射）</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="793" />
+        <location filename="../main.cpp" line="917" />
         <source>Radio / protocollo</source>
         <translation>電台 / 協定</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="794" />
+        <location filename="../main.cpp" line="918" />
         <source>Indirizzo CI-V</source>
         <translation>CI-V 位址</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="795" />
+        <location filename="../main.cpp" line="919" />
         <source>L'indirizzo con cui il rig risponde sul bus CI-V.
 IC-7300: 0x94 (predefinito di fabbrica). Se e' stato cambiato nei
 menu della radio, va scritto lo stesso valore qui.</source>
@@ -346,208 +346,213 @@ IC-7300：0x94（出廠預設）。若在電台選單裡改過，
 這裡要填同樣的值。</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="800" />
+        <location filename="../main.cpp" line="924" />
         <source>Audio al rig</source>
         <translation>送往電台的音訊</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="807" />
+        <location filename="../main.cpp" line="931" />
         <source>Porta rig</source>
         <translation>電台連接埠</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="812" />
+        <location filename="../main.cpp" line="936" />
         <source>TCP</source>
         <translation>TCP</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="817" />
+        <location filename="../main.cpp" line="941" />
         <source>Velocità</source>
         <translation>鮑率</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="824" />
+        <location filename="../main.cpp" line="948" />
         <source>dati</source>
         <translation>資料位元</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="828" />
+        <location filename="../main.cpp" line="952" />
         <source>parità</source>
         <translation>同位檢查</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="832" />
+        <location filename="../main.cpp" line="956" />
         <source>stop</source>
         <translation>停止位元</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="836" />
+        <location filename="../main.cpp" line="960" />
         <source>Seriale</source>
         <translation>序列埠</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="837" />
+        <location filename="../main.cpp" line="961" />
         <source>Handshake</source>
         <translation>流量控制</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="866" />
+        <location filename="../main.cpp" line="990" />
         <source>server di accesso (es. decolink.ft2.it)</source>
         <translation>登入伺服器（例如 decolink.ft2.it）</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="868" />
+        <location filename="../main.cpp" line="992" />
         <source>la tua email</source>
         <translation>你的電子郵件</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="871" />
+        <location filename="../main.cpp" line="995" />
         <source>password</source>
         <translation>密碼</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="872" />
+        <location filename="../main.cpp" line="996" />
         <source>ricorda la password</source>
         <translation>記住密碼</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="873" />
+        <location filename="../main.cpp" line="997" />
         <source>Viene salvata in chiaro fra le impostazioni di Windows: conviene solo su un computer di cui ti fidi.</source>
         <translation>會以明文儲存在 Windows 設定中：只建議在你信任的電腦上使用。</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="875" />
+        <location filename="../main.cpp" line="999" />
         <source>Accedi</source>
         <translation>登入</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="876" />
+        <location filename="../main.cpp" line="1000" />
         <source>non collegato</source>
         <translation>未連線</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="886" />
+        <location filename="../main.cpp" line="1010" />
         <source>Server</source>
         <translation>伺服器</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="892" />
+        <location filename="../main.cpp" line="1016" />
         <source>Accesso</source>
         <translation>登入</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="914" />
+        <location filename="../main.cpp" line="1037" />
+        <source>versione di Decolink</source>
+        <translation>Decolink 版本</translation>
+    </message>
+    <message>
+        <location filename="../main.cpp" line="1045" />
         <source>lingua dell'interfaccia</source>
         <translation>介面語言</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="930" />
+        <location filename="../main.cpp" line="1062" />
         <source>COLLEGAMENTO</source>
         <translation>連線</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="938" />
+        <location filename="../main.cpp" line="1070" />
         <source>RADIO E CAT</source>
         <translation>電台與 CAT</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="961" />
+        <location filename="../main.cpp" line="1093" />
         <source>livello audio</source>
         <translation>音訊電平</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1016" />
+        <location filename="../main.cpp" line="1148" />
         <source>campionamento a %1 kHz: se il telefono lo sente accelerato, torna a 48</source>
         <translation>取樣率 %1 kHz：如果手機聽起來變快，請改回 48</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1104" />
-        <location filename="../main.cpp" line="1112" />
+        <location filename="../main.cpp" line="1252" />
+        <location filename="../main.cpp" line="1260" />
         <source>Lingua</source>
         <translation>語言</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1105" />
+        <location filename="../main.cpp" line="1253" />
         <source>Il collegamento è aperto: la lingua cambia alla prossima apertura del programma.</source>
         <translation>連線正在進行：語言將在下次啟動程式時生效。</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1113" />
+        <location filename="../main.cpp" line="1261" />
         <source>Decolink si riavvia per cambiare lingua. Procedo?</source>
         <translation>Decolink 將重新啟動以變更語言。繼續嗎？</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1137" />
+        <location filename="../main.cpp" line="1285" />
         <source>IP del telefono sulla rete locale</source>
         <translation>手機在本地網路中的 IP</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1140" />
+        <location filename="../main.cpp" line="1288" />
         <source>host del relay (es. decolink.ft2.it)</source>
         <translation>中繼伺服器（例如 decolink.ft2.it）</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1143" />
+        <location filename="../main.cpp" line="1291" />
         <source>(il telefono chiama questa porta)</source>
         <translation>（手機呼叫這個連接埠）</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1154" />
+        <location filename="../main.cpp" line="1302" />
         <source>manca il server di accesso</source>
         <translation>缺少登入伺服器</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1156" />
+        <location filename="../main.cpp" line="1304" />
         <source>servono email e password</source>
         <translation>需要電子郵件和密碼</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1178" />
+        <location filename="../main.cpp" line="1326" />
         <source>accesso in corso…</source>
         <translation>正在登入…</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1198" />
+        <location filename="../main.cpp" line="1346" />
         <source>risposta incomprensibile dal server</source>
         <translation>無法解析伺服器的回覆</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1235" />
+        <location filename="../main.cpp" line="1383" />
         <source>%1 — stazione %2, come %3%4</source>
         <translation>%1 — 電台 %2，身分：%3%4</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1258" />
+        <location filename="../main.cpp" line="1406" />
         <source>%1 — %2</source>
         <translation>%1 — %2</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1294" />
+        <location filename="../main.cpp" line="1442" />
         <source>credenziali scadute: rifaccio l'accesso</source>
         <translation>憑證已過期：正在重新登入</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1297" />
+        <location filename="../main.cpp" line="1445" />
         <source>manca l'accesso: premi Accedi, poi Avvia</source>
         <translation>尚未登入：請先點「登入」，再點「啟動」</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1327" />
+        <location filename="../main.cpp" line="1475" />
         <source>nessuna porta seriale</source>
         <translation>沒有序列埠</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1336" />
+        <location filename="../main.cpp" line="1484" />
         <source>indirizzo CI-V non valido</source>
         <translation>CI-V 位址無效</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1345" />
+        <location filename="../main.cpp" line="1493" />
         <source>manca l'indirizzo del programma che tiene la radio</source>
         <translation>缺少占用電台的程式位址</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1362" />
+        <location filename="../main.cpp" line="1510" />
         <source>qui c'è Decolink stesso: scegli il programma che tiene davvero la radio, o cambia la porta TCP qui sotto</source>
         <translation>這裡就是 Decolink 自己：請選擇真正占用電台的程式，或修改下面的 TCP 連接埠</translation>
     </message>
@@ -556,148 +561,148 @@ IC-7300：0x94（出廠預設）。若在電台選單裡改過，
         <translation>TCP 連接埠 %1 與你要連線的相同：請改一個</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1378" />
+        <location filename="../main.cpp" line="1526" />
         <source>%1 non risponde: %2</source>
         <translation>%1 無回應：%2</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1391" />
+        <location filename="../main.cpp" line="1539" />
         <source>%1 non si apre: %2</source>
         <translation>無法開啟 %1：%2</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1399" />
+        <location filename="../main.cpp" line="1547" />
         <source>porta TCP %1 occupata (rigctld è già in esecuzione?)</source>
         <translation>TCP 連接埠 %1 被占用（rigctld 是否已在執行？）</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1447" />
+        <location filename="../main.cpp" line="1595" />
         <source>rig: %1 MHz  %2   (TCP %3, e sul canale audio)</source>
         <translation>電台：%1 MHz  %2   （TCP %3，並透過音訊通道）</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1460" />
+        <location filename="../main.cpp" line="1614" />
         <source>il programma che tiene la radio ha smesso di rispondere — riaccendi il CAT quando è tornato</source>
         <translation>占用電台的程式已停止回應 — 等它恢復後請重新開啟 CAT</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1462" />
+        <location filename="../main.cpp" line="1616" />
         <source>rig non risponde sulla seriale</source>
         <translation>電台在序列埠上無回應</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1490" />
+        <location filename="../main.cpp" line="1644" />
         <source>telefono connesso da %1:%2</source>
         <translation>手機已從 %1:%2 連線</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1540" />
+        <location filename="../main.cpp" line="1694" />
         <source>credenziali da rinnovare: rifaccio l'accesso</source>
         <translation>憑證需要更新：正在重新登入</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1544" />
+        <location filename="../main.cpp" line="1698" />
         <source>il relay ha rifiutato il collegamento: %1</source>
         <translation>中繼拒絕了連線：%1</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1552" />
+        <location filename="../main.cpp" line="1706" />
         <source>il telefono è entrato nella stanza</source>
         <translation>手機已加入房間</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1554" />
+        <location filename="../main.cpp" line="1708" />
         <source>registrato sul relay come %1 (%2)</source>
         <translation>已在中繼上註冊為 %1（%2）</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1661" />
+        <location filename="../main.cpp" line="1815" />
         <source>il telefono legge i pacchetti raggruppati: banda ridotta</source>
         <translation>手機可讀取合併的封包：頻寬已降低</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1683" />
+        <location filename="../main.cpp" line="1837" />
         <source>profilo su richiesta del telefono: %1</source>
         <translation>手機要求的設定檔：%1</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1977" />
-        <location filename="../main.cpp" line="2158" />
+        <location filename="../main.cpp" line="2131" />
+        <location filename="../main.cpp" line="2312" />
         <source>%1 non supporta 48 kHz mono 16 bit</source>
         <translation>%1 不支援 48 kHz 單聲道 16 位元</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1985" />
+        <location filename="../main.cpp" line="2139" />
         <source>trasmissione dal telefono in corso</source>
         <translation>正在從手機發射</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1996" />
+        <location filename="../main.cpp" line="2150" />
         <source>trasmissione finita</source>
         <translation>發射結束</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="2047" />
+        <location filename="../main.cpp" line="2201" />
         <source>registrato, ma nella stazione non c'è nessun altro: il telefono non è ancora entrato</source>
         <translation>已註冊，但電台裡沒有其他人：手機尚未加入</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="2050" />
+        <location filename="../main.cpp" line="2204" />
         <source>attenzione: profilo %1, ma il telefono non ha confermato di saperlo leggere — se non senti niente, passa a PCM 48 kHz</source>
         <translation>注意：設定檔為 %1，但手機未確認能否讀取 — 如果聽不到聲音，請切換到 PCM 48 kHz</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="2064" />
+        <location filename="../main.cpp" line="2218" />
         <source>telefono non più raggiungibile — attendo che richiami</source>
         <translation>手機已失聯 — 等待它重新連線</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="2106" />
+        <location filename="../main.cpp" line="2260" />
         <source>Opus non si avvia (%1): resto sul PCM</source>
         <translation>Opus 無法啟動（%1）：保持 PCM</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="2122" />
+        <location filename="../main.cpp" line="2276" />
         <source>manca l'host di destinazione</source>
         <translation>缺少目標主機</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="2125" />
+        <location filename="../main.cpp" line="2279" />
         <source>nome non risolto: %1</source>
         <translation>無法解析名稱：%1</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="2130" />
+        <location filename="../main.cpp" line="2284" />
         <source>accedi prima: il relay non accetta collegamenti senza credenziali</source>
         <translation>請先登入：中繼不接受沒有憑證的連線</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="2140" />
+        <location filename="../main.cpp" line="2294" />
         <source>porta %1 non disponibile</source>
         <translation>連接埠 %1 無法使用</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="2154" />
+        <location filename="../main.cpp" line="2308" />
         <source>nessun ingresso audio</source>
         <translation>沒有音訊輸入</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="2163" />
+        <location filename="../main.cpp" line="2317" />
         <source>impossibile aprire l'ingresso audio</source>
         <translation>無法開啟音訊輸入</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="2167" />
+        <location filename="../main.cpp" line="2321" />
         <source>Ferma</source>
         <translation>停止</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="2171" />
+        <location filename="../main.cpp" line="2325" />
         <source>in ascolto sulla porta %1 — attendo il telefono</source>
         <translation>正在連接埠 %1 監聽 — 等待手機</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="2222" />
+        <location filename="../main.cpp" line="2376" />
         <source>profilo riportato a PCM 48 kHz: i profili compressi richiedono un telefono aggiornato</source>
         <translation>設定檔已回到 PCM 48 kHz：壓縮設定檔需要更新過的手機</translation>
     </message>
@@ -705,22 +710,22 @@ IC-7300：0x94（出廠預設）。若在電台選單裡改過，
 <context>
     <name>QObject</name>
     <message>
-        <location filename="../hamlibrig.h" line="182" />
+        <location filename="../hamlibrig.h" line="184" />
         <source>errore %1 di Hamlib</source>
         <translation>Hamlib 錯誤 %1</translation>
     </message>
     <message>
-        <location filename="../hamlibrig.h" line="268" />
+        <location filename="../hamlibrig.h" line="270" />
         <source>indirizzo vuoto</source>
         <translation>位址為空</translation>
     </message>
     <message>
-        <location filename="../hamlibrig.h" line="277" />
+        <location filename="../hamlibrig.h" line="279" />
         <source>nessuna risposta da %1:%2</source>
         <translation>%1:%2 沒有回應</translation>
     </message>
     <message>
-        <location filename="../hamlibrig.h" line="278" />
+        <location filename="../hamlibrig.h" line="280" />
         <source>%1:%2 — %3</source>
         <translation>%1:%2 — %3</translation>
     </message>
