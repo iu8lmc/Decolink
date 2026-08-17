@@ -311,6 +311,16 @@ public:
 #endif
         return m_port && m_port->isOpen();
     }
+
+    // Se c'e' davvero una porta seriale aperta da noi.
+    //
+    // Non e' la stessa cosa di isOpen(): con una radio gestita da Hamlib il rig
+    // e' aperto ma la seriale non l'abbiamo mai toccata, e m_port e' nullo — la
+    // tiene Hamlib, o un altro programma se la radio e' in rete. Chi scrive sui
+    // fili deve chiedere questo, non «il rig e' aperto», o finisce a scrivere
+    // dentro un puntatore che non c'e'.
+    bool serialeAperta() const { return m_port && m_port->isOpen(); }
+
     QString error() const { return m_error; }
 
     // Se la radio la si raggiunge per rete invece che sulla seriale. Cambia il
@@ -352,23 +362,34 @@ public:
             return QStringLiteral("RPRT 0\n");
         }
         if (cmd == QLatin1String("t")) {
-            QString const r = m_icom ? civQuery(QByteArray(1, char(0x1c)) + QByteArray(1, char(0)))
-                                     : query(QStringLiteral("TX;"), QStringLiteral("TX"));
+            // Hamlib per primo, come in tutti gli altri comandi. Qui il
+            // controllo stava in fondo, e prima si interrogava comunque la
+            // seriale: con una radio gestita da Hamlib quella seriale non
+            // esiste — la tiene Hamlib, o un altro programma se la radio e' in
+            // rete — e il programma moriva appena il telefono chiedeva lo stato
+            // del PTT, che e' una delle prime cose che chiede.
 #ifdef DECOLINK_CON_HAMLIB
             if (m_usaHamlib)
                 return m_ham.inTrasmissione() ? QStringLiteral("1\n") : QStringLiteral("0\n");
 #endif
+            QString const r = m_icom ? civQuery(QByteArray(1, char(0x1c)) + QByteArray(1, char(0)))
+                                     : query(QStringLiteral("TX;"), QStringLiteral("TX"));
             if (m_icom) return (r.size() >= 3 && quint8(r.at(2).toLatin1()) != 0) ? QStringLiteral("1\n") : QStringLiteral("0\n");
             return (r.size() >= 3 && r.at(2) != QLatin1Char('0')) ? QStringLiteral("1\n") : QStringLiteral("0\n");
         }
         // Comandi Yaesu grezzi, come il "w"/"W" di rigctl: servono per quello che
         // netrigctl non copre (potenza, misuratori). "w" invia e basta (i set
         // Yaesu non rispondono), "W" invia e restituisce la risposta.
+        // Sono comandi Yaesu grezzi: hanno senso solo se la seriale la teniamo
+        // noi. Con una radio su Hamlib si risponde che non si puo' fare, invece
+        // di dire «eseguito» senza aver mandato niente.
         if (cmd.startsWith(QLatin1String("w "))) {
+            if (!serialeAperta()) return QStringLiteral("RPRT -1\n");
             send(cmd.mid(2).trimmed());
             return QStringLiteral("RPRT 0\n");
         }
         if (cmd.startsWith(QLatin1String("W "))) {
+            if (!serialeAperta()) return QStringLiteral("RPRT -1\n");
             QString const r = query(cmd.mid(2).trimmed(), QString());
             return r.isEmpty() ? QStringLiteral("RPRT -1\n") : r + "\n";
         }
@@ -503,14 +524,14 @@ private:
 
     void civWrite(quint8 command, const QByteArray& data)
     {
-        if (!isOpen()) return;
+        if (!serialeAperta()) return;
         QByteArray frame("\xfe\xfe", 2); frame.append(char(m_civAddress)); frame.append(char(0xe0)); frame.append(char(command)); frame.append(data); frame.append(char(0xfd));
         m_port->write(frame); m_port->waitForBytesWritten(300);
     }
 
     QByteArray civQuery(const QByteArray& command)
     {
-        if (!isOpen()) return {};
+        if (!serialeAperta()) return {};
         QByteArray frame("\xfe\xfe", 2); frame.append(char(m_civAddress)); frame.append(char(0xe0)); frame.append(command); frame.append(char(0xfd));
         m_port->clear(QSerialPort::Input); m_port->write(frame); m_port->waitForBytesWritten(300);
         QByteArray acc; QElapsedTimer t; t.start();
@@ -524,7 +545,7 @@ private:
 
     void send(const QString& s)
     {
-        if (!isOpen()) return;
+        if (!serialeAperta()) return;
         m_port->write(s.toLatin1());
         m_port->waitForBytesWritten(200);
     }
@@ -534,7 +555,7 @@ private:
     // per non bloccare l'interfaccia.
     QString query(const QString& cmd, const QString& expect)
     {
-        if (!isOpen()) return QString();
+        if (!serialeAperta()) return QString();
         m_port->clear(QSerialPort::Input);
         send(cmd);
         QByteArray acc;
@@ -2920,6 +2941,58 @@ int main(int argc, char** argv)
         // Con "--hamlibtest host:porta" si prova la radio condivisa: ci si
         // collega a un programma che tiene lui la seriale, come farebbe l'utente
         // con rigctld o FLRig, e si comanda da li'.
+        // I comandi che il telefono manda a una radio gestita da Hamlib.
+        //
+        // Serve perche' qui c'era un crash: il comando «t», con cui il telefono
+        // chiede se la radio e' in trasmissione, interrogava la seriale prima di
+        // guardare se la radio la teneva Hamlib. Con Hamlib quella seriale non
+        // l'abbiamo aperta noi, il puntatore e' nullo, e il programma moriva —
+        // appena il telefono si collegava, perche' lo stato del PTT e' fra le
+        // prime cose che chiede.
+        //
+        // Si prova sulla radio finta di Hamlib, che non ha nessuna seriale
+        // dietro: e' la condizione esatta in cui si rompeva.
+        {
+            out << "\n  i comandi del telefono su una radio Hamlib:\n";
+            CatRig finta;
+            if (!finta.openHamlib(1, QString(), 0, 8, 1, QString())) {
+                out << "    non si apre la radio finta: " << finta.error() << "\n";
+                out.flush();
+                return 8;
+            }
+            struct Prova { char const* cmd; char const* attesa; };
+            Prova const prove[] = {
+                {"t",          "0"},          // stato del PTT: e' questo che uccideva
+                {"f",          nullptr},      // frequenza
+                {"m",          nullptr},      // modo
+                {"F 14074000", "RPRT 0"},
+                {"M USB",      "RPRT 0"},
+                {"T 1",        "RPRT 0"},
+                {"T 0",        "RPRT 0"},
+                {"t",          "0"},
+                {"w FA;",      "RPRT -1"},    // comando grezzo: senza seriale non si puo'
+                {"W FA;",      "RPRT -1"},
+                {"M PIZZA",    "RPRT -1"},    // modo inventato: va rifiutato
+            };
+            int storti = 0;
+            for (Prova const& p : prove) {
+                QString r = finta.handle(QString::fromLatin1(p.cmd)).trimmed();
+                bool bene = !r.isEmpty();
+                if (p.attesa) bene = (r.section(QLatin1Char('\n'), 0, 0) == QLatin1String(p.attesa));
+                if (!bene) ++storti;
+                out << QStringLiteral("    %1%2 %3\n")
+                           .arg(QString::fromLatin1(p.cmd), -14)
+                           .arg(bene ? QStringLiteral("ok") : QStringLiteral("SBAGLIATO"), -11)
+                           .arg(r.replace(QLatin1Char('\n'), QLatin1Char(' ')));
+            }
+            finta.close();
+            if (storti) {
+                out << QStringLiteral("\n  %1 comandi sbagliati\n").arg(storti);
+                out.flush();
+                return 8;
+            }
+        }
+
         // Come si legge un indirizzo, e quando quell'indirizzo siamo noi.
         //
         // E' il controllo che evita di collegarsi alla propria porta rigctld:
