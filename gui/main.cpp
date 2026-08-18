@@ -497,9 +497,38 @@ public:
         // non misura il ROS deve dire «non ce l'ho», non zero. Zero su un
         // rosmetro vuol dire antenna perfetta, ed e' la bugia peggiore che si
         // possa raccontare a chi sta per premere il PTT.
-        if (cmd.startsWith(QLatin1String("l "))) {
-            QString const quale = cmd.mid(2).trimmed().toUpper();
-            return leggiLivello(quale);
+        // Il telefono chiede i misuratori nella forma lunga e con il piu'
+        // davanti: «+\get_level SWR». Il piu' e' il modo di rigctl per dire
+        // «rispondimi per esteso, col nome del campo», e senza quelle due righe
+        // il telefono non sa a quale misuratore appartenga il numero che
+        // riceve: li chiede tutti e tre di fila, e le risposte tornano in
+        // ordine ma indistinguibili.
+        //
+        // Decolink capiva solo la forma breve «l SWR». Misurava, rispondeva, e
+        // dall'altra parte non arrivava niente.
+        {
+            QString richiesta = cmd;
+            bool const esteso = richiesta.startsWith(QLatin1Char('+'));
+            if (esteso) richiesta = richiesta.mid(1).trimmed();
+
+            QString quale;
+            if (richiesta.startsWith(QLatin1String("l ")))
+                quale = richiesta.mid(2).trimmed().toUpper();
+            else if (richiesta.startsWith(QLatin1String("\\get_level ")))
+                // «\get_level » sono undici caratteri, non dodici: con mid(12)
+                // si perdeva la prima lettera del nome e ogni misuratore
+                // diventava sconosciuto.
+                quale = richiesta.mid(11).trimmed().toUpper();
+
+            if (!quale.isEmpty()) {
+                QString const r = leggiLivello(quale);
+                if (!esteso) return r;
+                // In forma estesa anche il rifiuto va detto per esteso, o il
+                // telefono resta ad aspettare una risposta che non arriva.
+                if (r.startsWith(QLatin1String("RPRT"))) return r;
+                return QStringLiteral("get_level: %1\nLevel Value: %2\nRPRT 0\n")
+                    .arg(quale, r.trimmed());
+            }
         }
 
         // Sono comandi Yaesu grezzi: hanno senso solo se la seriale la teniamo
@@ -3217,6 +3246,12 @@ int main(int argc, char** argv)
                 {"l RFPOWER_METER",    nullptr},
                 {"l STRENGTH",         nullptr},
                 {"l PIZZA",            "RPRT -1"},   // livello inventato: rifiutato
+                // La forma che usa davvero Decodium Mobile: prefisso + e nome
+                // lungo. Senza, Decolink misurava e al telefono non arrivava
+                // niente.
+                {"+\\get_level SWR",   "get_level: SWR"},
+                {"+\\get_level ALC",   "get_level: ALC"},
+                {"\\get_level SWR",    nullptr},
             };
             int storti = 0;
             for (Prova const& p : prove) {

@@ -369,7 +369,15 @@ public:
     // errore per qualcosa che non ha mai avuto.
     bool haLivello(setting_t quale) const
     {
-        return m_rig && (rig_has_get_level(m_rig, quale) != 0);
+        if (!m_rig) return false;
+        if (rig_has_get_level(m_rig, quale)) return true;
+        // Con una radio in rete l'elenco delle capacita' arriva dal
+        // \dump_state di chi sta dall'altra parte, e non tutti lo compilano:
+        // un server che dimentica di dichiarare i misuratori li rende
+        // invisibili, anche quando risponderebbe benissimo. Meglio provare a
+        // chiedere e prendersi un rifiuto — costa una domanda — che dare per
+        // scontato un «non ce l'ho» che nessuno ha davvero detto.
+        return m_perRete;
     }
 
     // Il valore grezzo di un livello. Torna false se la radio non lo espone o
