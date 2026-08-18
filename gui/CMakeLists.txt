@@ -4,7 +4,7 @@ cmake_minimum_required(VERSION 3.16)
 # file e scrive nei rapporti di errore), nel programma stesso e nell'installer.
 # Prima non c'era, e i rapporti di errore dicevano «versione 0.0.0.0»: davanti a
 # un crash non si sapeva nemmeno quale build fosse.
-project(decolink VERSION 2.4.0 LANGUAGES CXX)
+project(decolink VERSION 2.5.0 LANGUAGES CXX)
 
 set(DECOLINK_AUTORE   "IU8LMC - Martino Merola")
 set(DECOLINK_SITO     "https://decolink.ft2.it")

@@ -158,3 +158,37 @@ T4["versione di Decolink"] = {
  "ro": "versiunea Decolink", "lv": "Decolink versija", "ru": "версия Decolink",
  "ja": "Decolink のバージョン", "zh": "Decolink 版本", "zh_TW": "Decolink 版本",
 }
+
+T4["Potenza, ROS e ALC letti dalla radio.\n"
+   "Compaiono mentre trasmetti, se la radio li espone."] = {
+ "en": "Power, SWR and ALC read from the radio.\n"
+       "They appear while you transmit, if the radio exposes them.",
+ "de": "Leistung, SWR und ALC vom Funkgerät gelesen.\n"
+       "Sie erscheinen beim Senden, sofern das Gerät sie liefert.",
+ "fr": "Puissance, ROS et ALC lus sur la radio.\n"
+       "Ils apparaissent en émission, si la radio les fournit.",
+ "es": "Potencia, ROE y ALC leídos de la radio.\n"
+       "Aparecen mientras transmites, si la radio los proporciona.",
+ "pt": "Potência, ROE e ALC lidos do rádio.\n"
+       "Aparecem enquanto transmite, se o rádio os fornecer.",
+ "nl": "Vermogen, SWR en ALC uitgelezen van de set.\n"
+       "Ze verschijnen tijdens het zenden, als de set ze geeft.",
+ "ca": "Potència, ROE i ALC llegits de la ràdio.\n"
+       "Apareixen mentre transmets, si la ràdio els proporciona.",
+ "da": "Effekt, SWR og ALC aflæst fra radioen.\n"
+       "De vises, mens du sender, hvis radioen giver dem.",
+ "hu": "A rádióról leolvasott teljesítmény, SWR és ALC.\n"
+       "Adás közben jelennek meg, ha a rádió közli őket.",
+ "ro": "Puterea, ROS și ALC citite de la radio.\n"
+       "Apar în timp ce transmiți, dacă radioul le oferă.",
+ "lv": "No radio nolasītā jauda, SVK un ALC.\n"
+       "Tie parādās pārraides laikā, ja radio tos sniedz.",
+ "ru": "Мощность, КСВ и ALC, считанные с трансивера.\n"
+       "Появляются во время передачи, если трансивер их отдаёт.",
+ "ja": "無線機から読み取った電力、SWR、ALC。\n"
+       "無線機が対応していれば、送信中に表示されます。",
+ "zh": "从电台读取的功率、驻波比和 ALC。\n"
+       "发射时显示，前提是电台提供这些数据。",
+ "zh_TW": "從電台讀取的功率、駐波比和 ALC。\n"
+          "發射時顯示，前提是電台提供這些資料。",
+}

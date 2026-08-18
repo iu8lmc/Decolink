@@ -4,27 +4,27 @@
 <context>
     <name>Client</name>
     <message>
-        <location filename="../main.cpp" line="695" />
+        <location filename="../main.cpp" line="714" />
         <source>Decolink — la radio su Decodium Mobile</source>
         <translation>Decolink — a rádió a Decodium Mobile-on</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="702" />
+        <location filename="../main.cpp" line="721" />
         <source>LAN diretta</source>
         <translation>Közvetlen LAN</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="703" />
+        <location filename="../main.cpp" line="722" />
         <source>Relay + stazione</source>
         <translation>Relé + állomás</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="704" />
+        <location filename="../main.cpp" line="723" />
         <source>Il telefono chiama casa</source>
         <translation>A telefon hívja az otthont</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="705" />
+        <location filename="../main.cpp" line="724" />
         <source>LAN diretta — il telefono è sulla stessa rete: gli si manda l'audio all'indirizzo
 Relay + stazione — funziona ovunque, anche su dati mobili: PC e telefono
    escono entrambi verso il relay, quindi non c'è nessun router da configurare
@@ -35,32 +35,32 @@ Relé + állomás — mindenhol működik, mobilneten is: a PC és a telefon
 A telefon hívja az otthont — átirányított port a routeren és DynDNS-név</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="712" />
+        <location filename="../main.cpp" line="731" />
         <source>IP del telefono, oppure host del relay</source>
         <translation>A telefon IP-címe vagy a relé kiszolgálója</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="716" />
+        <location filename="../main.cpp" line="735" />
         <source>(accedi per scegliere la stazione)</source>
         <translation>(jelentkezzen be az állomás kiválasztásához)</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="740" />
+        <location filename="../main.cpp" line="759" />
         <source>48 kHz</source>
         <translation>48 kHz</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="741" />
+        <location filename="../main.cpp" line="760" />
         <source>24 kHz</source>
         <translation>24 kHz</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="742" />
+        <location filename="../main.cpp" line="761" />
         <source>12 kHz</source>
         <translation>12 kHz</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="743" />
+        <location filename="../main.cpp" line="762" />
         <source>Quanti campioni al secondo mandare.
 48 kHz — 808 kbit/s, 364 MB l'ora: sicuro con qualunque programma
 24 kHz — 424 kbit/s, 191 MB l'ora
@@ -79,32 +79,32 @@ Ha a telefonon felgyorsítva szól, figyelmen kívül hagyja a megadott
 mintavételezést: térjen vissza 48 kHz-re.</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="753" />
+        <location filename="../main.cpp" line="772" />
         <source>PCM</source>
         <translation>PCM</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="754" />
+        <location filename="../main.cpp" line="773" />
         <source>Voce (Opus)</source>
         <translation>Beszéd (Opus)</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="755" />
+        <location filename="../main.cpp" line="774" />
         <source>CW (Opus)</source>
         <translation>CW (Opus)</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="756" />
+        <location filename="../main.cpp" line="775" />
         <source>Digitali senza perdite</source>
         <translation>Digitális módok, veszteségmentes</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="757" />
+        <location filename="../main.cpp" line="776" />
         <source>CW a tasto</source>
         <translation>Csak CW-billentyűzés</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="758" />
+        <location filename="../main.cpp" line="777" />
         <source>PCM — compatibile con tutti, nessuna compressione
 Voce — Opus a 32 kbit/s: serve un programma aggiornato dall'altra parte
 CW — Opus a banda stretta, 20 kbit/s
@@ -119,22 +119,22 @@ CW-billentyűzés — csak a ritmus, 2,4 kbit/s: elvész
 a teljes környezet (QSB, QRM, aki a frekvencia mellett hív)</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="769" />
+        <location filename="../main.cpp" line="788" />
         <source>20 ms</source>
         <translation>20 ms</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="770" />
+        <location filename="../main.cpp" line="789" />
         <source>40 ms</source>
         <translation>40 ms</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="771" />
+        <location filename="../main.cpp" line="790" />
         <source>60 ms</source>
         <translation>60 ms</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="773" />
+        <location filename="../main.cpp" line="792" />
         <source>Quanti frame mettere in un pacchetto: meno pacchetti, meno
 intestazioni da pagare, ma un po' più di ritardo.
 20 ms — latenza minima
@@ -147,87 +147,94 @@ jelent, de kicsit több késleltetést.
 60 ms — 24%-kal kevesebb, korlátos kapcsolatokhoz</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="786" />
+        <location filename="../main.cpp" line="805" />
         <source>Audio radio</source>
         <translation>Rádió hangja</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="787" />
+        <location filename="../main.cpp" line="806" />
         <source>Modalità</source>
         <translation>Üzemmód</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="788" />
+        <location filename="../main.cpp" line="807" />
         <source>Host</source>
         <translation>Kiszolgáló</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="795" />
+        <location filename="../main.cpp" line="814" />
         <source>stazione</source>
         <translation>állomás</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="799" />
+        <location filename="../main.cpp" line="818" />
         <source>Porta</source>
         <translation>Port</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="807" />
+        <location filename="../main.cpp" line="826" />
         <source>Profilo</source>
         <translation>Profil</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="808" />
+        <location filename="../main.cpp" line="827" />
         <source>Campionamento</source>
         <translation>Mintavételezés</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="809" />
+        <location filename="../main.cpp" line="828" />
         <source>Pacchetti da</source>
         <translation>Csomaghossz</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="815" />
-        <location filename="../main.cpp" line="821" />
+        <location filename="../main.cpp" line="834" />
+        <location filename="../main.cpp" line="840" />
         <source>▸  Impostazioni avanzate</source>
         <translation>▸  Speciális beállítások</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="820" />
+        <location filename="../main.cpp" line="839" />
         <source>▾  Impostazioni avanzate</source>
         <translation>▾  Speciális beállítások</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="827" />
-        <location filename="../main.cpp" line="2336" />
-        <location filename="../main.cpp" line="2663" />
+        <location filename="../main.cpp" line="846" />
+        <location filename="../main.cpp" line="2372" />
+        <location filename="../main.cpp" line="2700" />
         <source>Avvia</source>
         <translation>Indítás</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="833" />
-        <location filename="../main.cpp" line="2338" />
+        <location filename="../main.cpp" line="856" />
+        <source>Potenza, ROS e ALC letti dalla radio.
+Compaiono mentre trasmetti, se la radio li espone.</source>
+        <translation>A rádióról leolvasott teljesítmény, SWR és ALC.
+Adás közben jelennek meg, ha a rádió közli őket.</translation>
+    </message>
+    <message>
+        <location filename="../main.cpp" line="858" />
+        <location filename="../main.cpp" line="2374" />
         <source>fermo</source>
         <translation>leállítva</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="836" />
-        <location filename="../main.cpp" line="2157" />
+        <location filename="../main.cpp" line="861" />
+        <location filename="../main.cpp" line="2193" />
         <source>—</source>
         <translation>—</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="846" />
+        <location filename="../main.cpp" line="871" />
         <source>Yaesu — comandi nativi</source>
         <translation>Yaesu — comandi nativi</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="847" />
+        <location filename="../main.cpp" line="872" />
         <source>Icom IC-7300 — CI-V nativo</source>
         <translation>Icom IC-7300 — CI-V nativo</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="863" />
+        <location filename="../main.cpp" line="888" />
         <source>Hamlib %1 — %2 modelli riconosciuti.
 I primi due sono i protocolli scritti dentro Decolink;
 gli altri passano da Hamlib, la stessa libreria che usa
@@ -238,12 +245,12 @@ a többi a Hamlibon keresztül megy, ugyanazon a könyvtáron,
 amit a Decodium használ asztali gépen.</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="872" />
+        <location filename="../main.cpp" line="897" />
         <source>host:porta del programma che tiene la radio</source>
         <translation>a rádiót birtokló program kiszolgálója:portja</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="874" />
+        <location filename="../main.cpp" line="899" />
         <source>Indirizzo del programma che tiene la porta seriale.
 rigctld e i programmi compatibili: localhost:4532
 FLRig: localhost:12345
@@ -259,89 +266,89 @@ Akkor kell, ha a COM portot már elfoglalta egy másik program:
 a soros port azé, aki elsőként megnyitja, és ketten nem férnek el.</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="887" />
+        <location filename="../main.cpp" line="912" />
         <source>115200</source>
         <translation>115200</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="889" />
+        <location filename="../main.cpp" line="914" />
         <source>7</source>
         <translation>7</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="890" />
-        <location filename="../main.cpp" line="891" />
+        <location filename="../main.cpp" line="915" />
+        <location filename="../main.cpp" line="916" />
         <source>8</source>
         <translation>8</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="893" />
+        <location filename="../main.cpp" line="918" />
         <source>nessuna</source>
         <translation>nincs</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="894" />
+        <location filename="../main.cpp" line="919" />
         <source>pari</source>
         <translation>páros</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="895" />
+        <location filename="../main.cpp" line="920" />
         <source>dispari</source>
         <translation>páratlan</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="897" />
+        <location filename="../main.cpp" line="922" />
         <source>1</source>
         <translation>1</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="898" />
+        <location filename="../main.cpp" line="923" />
         <source>2</source>
         <translation>2</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="901" />
+        <location filename="../main.cpp" line="926" />
         <source>nessuno</source>
         <translation>nincs</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="902" />
+        <location filename="../main.cpp" line="927" />
         <source>RTS/CTS</source>
         <translation>RTS/CTS</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="903" />
+        <location filename="../main.cpp" line="928" />
         <source>XON/XOFF</source>
         <translation>XON/XOFF</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="905" />
+        <location filename="../main.cpp" line="930" />
         <source>Servi il CAT al telefono</source>
         <translation>CAT szolgáltatása a telefonnak</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="906" />
-        <location filename="../main.cpp" line="1463" />
+        <location filename="../main.cpp" line="931" />
+        <location filename="../main.cpp" line="1489" />
         <source>CAT spento</source>
         <translation>CAT kikapcsolva</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="909" />
+        <location filename="../main.cpp" line="934" />
         <source>(nessuna: non trasmettere)</source>
         <translation>(nincs: ne adjon)</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="917" />
+        <location filename="../main.cpp" line="942" />
         <source>Radio / protocollo</source>
         <translation>Rádió / protokoll</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="918" />
+        <location filename="../main.cpp" line="943" />
         <source>Indirizzo CI-V</source>
         <translation>CI-V cím</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="919" />
+        <location filename="../main.cpp" line="944" />
         <source>L'indirizzo con cui il rig risponde sul bus CI-V.
 IC-7300: 0x94 (predefinito di fabbrica). Se e' stato cambiato nei
 menu della radio, va scritto lo stesso valore qui.</source>
@@ -350,213 +357,213 @@ IC-7300: 0x94 (gyári alapérték). Ha a rádió menüjében
 megváltoztatták, ugyanazt az értéket kell ide írni.</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="924" />
+        <location filename="../main.cpp" line="949" />
         <source>Audio al rig</source>
         <translation>Hang a rádió felé</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="931" />
+        <location filename="../main.cpp" line="956" />
         <source>Porta rig</source>
         <translation>Rádió portja</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="936" />
+        <location filename="../main.cpp" line="961" />
         <source>TCP</source>
         <translation>TCP</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="941" />
+        <location filename="../main.cpp" line="966" />
         <source>Velocità</source>
         <translation>Sebesség</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="948" />
+        <location filename="../main.cpp" line="973" />
         <source>dati</source>
         <translation>adat</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="952" />
+        <location filename="../main.cpp" line="977" />
         <source>parità</source>
         <translation>paritás</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="956" />
+        <location filename="../main.cpp" line="981" />
         <source>stop</source>
         <translation>stop</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="960" />
+        <location filename="../main.cpp" line="985" />
         <source>Seriale</source>
         <translation>Soros</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="961" />
+        <location filename="../main.cpp" line="986" />
         <source>Handshake</source>
         <translation>Kézfogás</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="990" />
+        <location filename="../main.cpp" line="1015" />
         <source>server di accesso (es. decolink.ft2.it)</source>
         <translation>bejelentkezési kiszolgáló (pl. decolink.ft2.it)</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="992" />
+        <location filename="../main.cpp" line="1017" />
         <source>la tua email</source>
         <translation>az e-mail-címed</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="995" />
+        <location filename="../main.cpp" line="1020" />
         <source>password</source>
         <translation>jelszó</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="996" />
+        <location filename="../main.cpp" line="1021" />
         <source>ricorda la password</source>
         <translation>jelszó megjegyzése</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="997" />
+        <location filename="../main.cpp" line="1022" />
         <source>Viene salvata in chiaro fra le impostazioni di Windows: conviene solo su un computer di cui ti fidi.</source>
         <translation>Titkosítatlanul tárolódik a Windows beállításai közt: csak megbízható gépen érdemes.</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="999" />
+        <location filename="../main.cpp" line="1024" />
         <source>Accedi</source>
         <translation>Belépés</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1000" />
+        <location filename="../main.cpp" line="1025" />
         <source>non collegato</source>
         <translation>nincs kapcsolat</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1010" />
+        <location filename="../main.cpp" line="1035" />
         <source>Server</source>
         <translation>Kiszolgáló</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1016" />
+        <location filename="../main.cpp" line="1041" />
         <source>Accesso</source>
         <translation>Belépés</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1037" />
+        <location filename="../main.cpp" line="1062" />
         <source>versione di Decolink</source>
         <translation>a Decolink verziója</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1045" />
+        <location filename="../main.cpp" line="1070" />
         <source>lingua dell'interfaccia</source>
         <translation>a felület nyelve</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1062" />
+        <location filename="../main.cpp" line="1087" />
         <source>COLLEGAMENTO</source>
         <translation>KAPCSOLAT</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1070" />
+        <location filename="../main.cpp" line="1095" />
         <source>RADIO E CAT</source>
         <translation>RÁDIÓ ÉS CAT</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1093" />
+        <location filename="../main.cpp" line="1118" />
         <source>livello audio</source>
         <translation>hangszint</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1148" />
+        <location filename="../main.cpp" line="1174" />
         <source>campionamento a %1 kHz: se il telefono lo sente accelerato, torna a 48</source>
         <translation>mintavételezés %1 kHz-en: ha a telefonon felgyorsítva szól, térjen vissza 48-ra</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1252" />
-        <location filename="../main.cpp" line="1260" />
+        <location filename="../main.cpp" line="1278" />
+        <location filename="../main.cpp" line="1286" />
         <source>Lingua</source>
         <translation>Nyelv</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1253" />
+        <location filename="../main.cpp" line="1279" />
         <source>Il collegamento è aperto: la lingua cambia alla prossima apertura del programma.</source>
         <translation>A kapcsolat él: a nyelv a program következő indításakor változik meg.</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1261" />
+        <location filename="../main.cpp" line="1287" />
         <source>Decolink si riavvia per cambiare lingua. Procedo?</source>
         <translation>A Decolink újraindul a nyelv módosításához. Folytatja?</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1285" />
+        <location filename="../main.cpp" line="1311" />
         <source>IP del telefono sulla rete locale</source>
         <translation>a telefon IP-címe a helyi hálózaton</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1288" />
+        <location filename="../main.cpp" line="1314" />
         <source>host del relay (es. decolink.ft2.it)</source>
         <translation>a relé kiszolgálója (pl. decolink.ft2.it)</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1291" />
+        <location filename="../main.cpp" line="1317" />
         <source>(il telefono chiama questa porta)</source>
         <translation>(a telefon ezt a portot hívja)</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1302" />
+        <location filename="../main.cpp" line="1328" />
         <source>manca il server di accesso</source>
         <translation>hiányzik a bejelentkezési kiszolgáló</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1304" />
+        <location filename="../main.cpp" line="1330" />
         <source>servono email e password</source>
         <translation>e-mail-cím és jelszó szükséges</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1326" />
+        <location filename="../main.cpp" line="1352" />
         <source>accesso in corso…</source>
         <translation>belépés folyamatban…</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1346" />
+        <location filename="../main.cpp" line="1372" />
         <source>risposta incomprensibile dal server</source>
         <translation>értelmezhetetlen válasz a kiszolgálótól</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1383" />
+        <location filename="../main.cpp" line="1409" />
         <source>%1 — stazione %2, come %3%4</source>
         <translation>%1 — %2 állomás, mint %3%4</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1406" />
+        <location filename="../main.cpp" line="1432" />
         <source>%1 — %2</source>
         <translation>%1 — %2</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1442" />
+        <location filename="../main.cpp" line="1468" />
         <source>credenziali scadute: rifaccio l'accesso</source>
         <translation>a hitelesítő adatok lejártak: újra belépek</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1445" />
+        <location filename="../main.cpp" line="1471" />
         <source>manca l'accesso: premi Accedi, poi Avvia</source>
         <translation>nincs belépve: nyomja meg a Belépés, majd az Indítás gombot</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1475" />
+        <location filename="../main.cpp" line="1501" />
         <source>nessuna porta seriale</source>
         <translation>nincs soros port</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1484" />
+        <location filename="../main.cpp" line="1510" />
         <source>indirizzo CI-V non valido</source>
         <translation>érvénytelen CI-V cím</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1493" />
+        <location filename="../main.cpp" line="1519" />
         <source>manca l'indirizzo del programma che tiene la radio</source>
         <translation>hiányzik a rádiót birtokló program címe</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1510" />
+        <location filename="../main.cpp" line="1536" />
         <source>qui c'è Decolink stesso: scegli il programma che tiene davvero la radio, o cambia la porta TCP qui sotto</source>
         <translation>ez maga a Decolink: válassza azt a programot, amely valóban birtokolja a rádiót, vagy módosítsa lent a TCP portot</translation>
     </message>
@@ -565,148 +572,148 @@ megváltoztatták, ugyanazt az értéket kell ide írni.</translation>
         <translation>a(z) %1 TCP port ugyanaz, amelyhez csatlakozik: változtassa meg az egyiket</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1526" />
+        <location filename="../main.cpp" line="1552" />
         <source>%1 non risponde: %2</source>
         <translation>%1 nem válaszol: %2</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1539" />
+        <location filename="../main.cpp" line="1565" />
         <source>%1 non si apre: %2</source>
         <translation>%1 nem nyitható meg: %2</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1547" />
+        <location filename="../main.cpp" line="1573" />
         <source>porta TCP %1 occupata (rigctld è già in esecuzione?)</source>
         <translation>a(z) %1 TCP port foglalt (fut már a rigctld?)</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1595" />
+        <location filename="../main.cpp" line="1621" />
         <source>rig: %1 MHz  %2   (TCP %3, e sul canale audio)</source>
         <translation>rádió: %1 MHz  %2   (TCP %3, és a hangcsatornán)</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1614" />
+        <location filename="../main.cpp" line="1650" />
         <source>il programma che tiene la radio ha smesso di rispondere — riaccendi il CAT quando è tornato</source>
         <translation>a rádiót birtokló program nem válaszol többé — kapcsolja vissza a CAT-et, ha újra elérhető</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1616" />
+        <location filename="../main.cpp" line="1652" />
         <source>rig non risponde sulla seriale</source>
         <translation>a rádió nem válaszol a soros porton</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1644" />
+        <location filename="../main.cpp" line="1680" />
         <source>telefono connesso da %1:%2</source>
         <translation>a telefon csatlakozott innen: %1:%2</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1694" />
+        <location filename="../main.cpp" line="1730" />
         <source>credenziali da rinnovare: rifaccio l'accesso</source>
         <translation>a hitelesítő adatokat meg kell újítani: újra belépek</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1698" />
+        <location filename="../main.cpp" line="1734" />
         <source>il relay ha rifiutato il collegamento: %1</source>
         <translation>a relé elutasította a kapcsolatot: %1</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1706" />
+        <location filename="../main.cpp" line="1742" />
         <source>il telefono è entrato nella stanza</source>
         <translation>a telefon belépett a szobába</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1708" />
+        <location filename="../main.cpp" line="1744" />
         <source>registrato sul relay come %1 (%2)</source>
         <translation>regisztrálva a relén mint %1 (%2)</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1815" />
+        <location filename="../main.cpp" line="1851" />
         <source>il telefono legge i pacchetti raggruppati: banda ridotta</source>
         <translation>a telefon olvassa a csoportosított csomagokat: csökkentett sávszélesség</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="1837" />
+        <location filename="../main.cpp" line="1873" />
         <source>profilo su richiesta del telefono: %1</source>
         <translation>a telefon által kért profil: %1</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="2131" />
-        <location filename="../main.cpp" line="2312" />
+        <location filename="../main.cpp" line="2167" />
+        <location filename="../main.cpp" line="2348" />
         <source>%1 non supporta 48 kHz mono 16 bit</source>
         <translation>a(z) %1 nem támogatja a 48 kHz mono 16 bitet</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="2139" />
+        <location filename="../main.cpp" line="2175" />
         <source>trasmissione dal telefono in corso</source>
         <translation>adás a telefonról folyamatban</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="2150" />
+        <location filename="../main.cpp" line="2186" />
         <source>trasmissione finita</source>
         <translation>az adás véget ért</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="2201" />
+        <location filename="../main.cpp" line="2237" />
         <source>registrato, ma nella stazione non c'è nessun altro: il telefono non è ancora entrato</source>
         <translation>regisztrálva, de rajtad kívül nincs senki az állomáson: a telefon még nem lépett be</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="2204" />
+        <location filename="../main.cpp" line="2240" />
         <source>attenzione: profilo %1, ma il telefono non ha confermato di saperlo leggere — se non senti niente, passa a PCM 48 kHz</source>
         <translation>figyelem: %1 profil, de a telefon nem erősítette meg, hogy tudja olvasni — ha nem hall semmit, váltson PCM 48 kHz-re</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="2218" />
+        <location filename="../main.cpp" line="2254" />
         <source>telefono non più raggiungibile — attendo che richiami</source>
         <translation>a telefon már nem érhető el — várom, hogy visszahívjon</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="2260" />
+        <location filename="../main.cpp" line="2296" />
         <source>Opus non si avvia (%1): resto sul PCM</source>
         <translation>Az Opus nem indul (%1): marad a PCM</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="2276" />
+        <location filename="../main.cpp" line="2312" />
         <source>manca l'host di destinazione</source>
         <translation>hiányzik a cél kiszolgáló</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="2279" />
+        <location filename="../main.cpp" line="2315" />
         <source>nome non risolto: %1</source>
         <translation>a név nem oldható fel: %1</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="2284" />
+        <location filename="../main.cpp" line="2320" />
         <source>accedi prima: il relay non accetta collegamenti senza credenziali</source>
         <translation>előbb lépjen be: a relé nem fogad kapcsolatot hitelesítő adatok nélkül</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="2294" />
+        <location filename="../main.cpp" line="2330" />
         <source>porta %1 non disponibile</source>
         <translation>a(z) %1 port nem érhető el</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="2308" />
+        <location filename="../main.cpp" line="2344" />
         <source>nessun ingresso audio</source>
         <translation>nincs hangbemenet</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="2317" />
+        <location filename="../main.cpp" line="2353" />
         <source>impossibile aprire l'ingresso audio</source>
         <translation>a hangbemenet nem nyitható meg</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="2321" />
+        <location filename="../main.cpp" line="2357" />
         <source>Ferma</source>
         <translation>Leállítás</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="2325" />
+        <location filename="../main.cpp" line="2361" />
         <source>in ascolto sulla porta %1 — attendo il telefono</source>
         <translation>figyelés a(z) %1 porton — várom a telefont</translation>
     </message>
     <message>
-        <location filename="../main.cpp" line="2376" />
+        <location filename="../main.cpp" line="2412" />
         <source>profilo riportato a PCM 48 kHz: i profili compressi richiedono un telefono aggiornato</source>
         <translation>a profil visszaállt PCM 48 kHz-re: a tömörített profilokhoz frissített telefon kell</translation>
     </message>

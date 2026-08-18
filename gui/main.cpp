@@ -73,6 +73,7 @@
 #include "lingua.h"
 #include "versione.h"   // generata da CMake
 #include "lossless.h"
+#include "misuratori.h"
 #include "opusvoce.h"
 #include "resample.h"
 #ifdef DECOLINK_CON_FREEDV
@@ -339,6 +340,22 @@ public:
         return m_usaHamlib && m_ham.perRete();
 #else
         return false;
+#endif
+    }
+
+    // I tre misuratori come numeri, per il widget che li disegna. Un valore
+    // negativo vuol dire «non lo so»: la radio non lo espone, o non sta
+    // trasmettendo. Va tenuto distinto da zero, che su un rosmetro vorrebbe
+    // dire antenna perfetta.
+    void misureNumeriche(double& watt, double& ros, double& alc)
+    {
+        watt = ros = alc = -1;
+#ifdef DECOLINK_CON_HAMLIB
+        if (!m_usaHamlib || !inTx()) return;
+        float v = 0.0f;
+        if (m_ham.livello(RIG_LEVEL_RFPOWER_METER_WATTS, v) && v > 0.0f) watt = double(v);
+        if (m_ham.livello(RIG_LEVEL_SWR, v) && v >= 1.0f) ros = double(v);
+        if (m_ham.livello(RIG_LEVEL_ALC, v)) alc = double(v) * 100.0;
 #endif
     }
 
@@ -832,6 +849,12 @@ public:
         m_start->setMinimumWidth(120);
         m_level = new QProgressBar; m_level->setRange(0, 100); m_level->setTextVisible(false);
         m_level->setFixedHeight(8);
+        // Potenza, ROS e ALC: si vedono sempre, anche a radio ferma, dove
+        // segnano «—». Un misuratore che compare solo quando c'e' un valore
+        // lascia il dubbio che sia rotto proprio quando serve guardarlo.
+        m_misure = new dl::Misuratori;
+        m_misure->setToolTip(tr("Potenza, ROS e ALC letti dalla radio.\n"
+                                "Compaiono mentre trasmetti, se la radio li espone."));
         m_status = new QLabel(tr("fermo"));
         m_status->setObjectName(QStringLiteral("stato"));
         m_status->setWordWrap(true);
@@ -1097,6 +1120,7 @@ public:
         livCol->addWidget(etLiv);
         livCol->addWidget(m_level);
         comandi->addLayout(livCol, 1);
+        comandi->addWidget(m_misure);
 
         auto* lay = new QVBoxLayout(this);
         lay->setContentsMargins(18, 14, 18, 14);
@@ -1601,6 +1625,16 @@ private slots:
             // lettura funziona senza dover guardare l'altro apparecchio.
             QString const mis = m_rig.misuratori();
             if (!mis.isEmpty()) riga += QLatin1String("   ") + mis;
+            double w = -1, r = -1, a = -1;
+            m_rig.misureNumeriche(w, r, a);
+            m_misure->aggiorna(w, r, a);
+            // Mentre si trasmette il misuratore si guarda: due secondi fra una
+            // lettura e l'altra vorrebbero dire sette valori in un passaggio
+            // FT8, e accorgersi di un ROS alto quando e' finito. A riposo si
+            // torna al passo lento, che non c'e' niente da seguire.
+            bool const inAria = (w >= 0 || r >= 0 || a >= 0);
+            int const passo = inAria ? 400 : 2000;
+            if (m_catPoll.interval() != passo) m_catPoll.setInterval(passo);
             m_catState->setText(riga);
             return;
         }
@@ -2486,6 +2520,7 @@ private:
     QSpinBox* m_port;
     QPushButton* m_start;
     QProgressBar* m_level;
+    dl::Misuratori* m_misure {nullptr};
     QLabel *m_status, *m_stats;
 
     // accesso al gateway
