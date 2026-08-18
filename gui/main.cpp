@@ -377,6 +377,8 @@ public:
         return false;
     }
 
+
+
     // Legge un misuratore e lo formatta come vuole rigctl.
     //
     // I nomi sono quelli di Hamlib, cosi' un client scritto per rigctl funziona
