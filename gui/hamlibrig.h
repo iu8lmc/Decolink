@@ -139,6 +139,26 @@ public:
         }
         m_nome = QString::fromLatin1(m_rig->caps->mfg_name) + QLatin1Char(' ')
                  + QString::fromLatin1(m_rig->caps->model_name);
+
+        // Con una radio in rete si aggiungono a mano i misuratori all'elenco di
+        // quello che il rig sa fare.
+        //
+        // Hamlib impara quell'elenco dal \dump_state di chi tiene la radio, una
+        // volta sola all'apertura, e poi si rifiuta di chiedere un livello che
+        // non risulta dichiarato: non manda nemmeno la domanda. Un server che
+        // dimentica di dichiararli — o che li dichiara solo da una certa
+        // versione in poi — rende i misuratori invisibili per sempre, anche
+        // quando risponderebbe benissimo. E' successo davvero, e da fuori
+        // sembrava una radio senza rosmetro.
+        //
+        // Chiedere e prendersi un rifiuto costa una domanda; non chiedere costa
+        // un misuratore che non si accendera' mai.
+        if (m_perRete) {
+            setting_t const misuratori =
+                RIG_LEVEL_SWR | RIG_LEVEL_ALC | RIG_LEVEL_STRENGTH
+                | RIG_LEVEL_RFPOWER_METER | RIG_LEVEL_RFPOWER_METER_WATTS;
+            m_rig->state.has_get_level |= misuratori;
+        }
         return true;
     }
 
