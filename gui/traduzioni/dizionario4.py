@@ -192,3 +192,22 @@ T4["Potenza, ROS e ALC letti dalla radio.\n"
  "zh_TW": "從電台讀取的功率、駐波比和 ALC。\n"
           "發射時顯示，前提是電台提供這些資料。",
 }
+
+
+# Lo stato del PTT che il relay manda a chi sta davanti alla radio.
+T4["PTT: libero"] = {
+ "en": "PTT: free", "de": "PTT: frei", "fr": "PTT : libre", "es": "PTT: libre",
+ "pt": "PTT: livre", "nl": "PTT: vrij", "ca": "PTT: lliure", "da": "PTT: ledig",
+ "hu": "PTT: szabad", "ro": "PTT: liber", "lv": "PTT: brīvs", "ru": "PTT: свободен",
+ "ja": "PTT：空き", "zh": "PTT：空闲", "zh_TW": "PTT：空閒",
+}
+
+T4["PTT: trasmette %1"] = {
+ "en": "PTT: %1 is transmitting", "de": "PTT: %1 sendet",
+ "fr": "PTT : %1 émet", "es": "PTT: %1 está transmitiendo",
+ "pt": "PTT: %1 está a transmitir", "nl": "PTT: %1 zendt",
+ "ca": "PTT: %1 està transmetent", "da": "PTT: %1 sender",
+ "hu": "PTT: %1 ad", "ro": "PTT: %1 transmite",
+ "lv": "PTT: %1 pārraida", "ru": "PTT: передаёт %1",
+ "ja": "PTT：%1 が送信中", "zh": "PTT：%1 正在发射", "zh_TW": "PTT：%1 正在發射",
+}
