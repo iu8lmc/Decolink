@@ -4,11 +4,11 @@ cmake_minimum_required(VERSION 3.16)
 # file e scrive nei rapporti di errore), nel programma stesso e nell'installer.
 # Prima non c'era, e i rapporti di errore dicevano «versione 0.0.0.0»: davanti a
 # un crash non si sapeva nemmeno quale build fosse.
-project(decolink VERSION 2.5.3 LANGUAGES CXX)
+project(decolink VERSION 2.6.0 LANGUAGES CXX)
 
 set(DECOLINK_AUTORE   "IU8LMC - Martino Merola")
 set(DECOLINK_SITO     "https://decolink.ft2.it")
-set(DECOLINK_DESCR    "Porta la radio su Decodium Mobile")
+set(DECOLINK_DESCR    "Decodium Stazione Remota")
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

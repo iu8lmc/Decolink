@@ -134,6 +134,8 @@ QString foglioStile()
 QWidget { background:#0d1622; color:#e8edf5;
           font-family:"Helvetica Neue"; font-size:13px }
 QLabel#logo { font-size:16px; font-weight:800; letter-spacing:2px; color:#00e5ff }
+QLabel#claim { font-size:11px; font-weight:700; letter-spacing:3px; color:#8fb3d9;
+              padding:0 0 2px 1px }
 QLabel#versione { font-size:11px; color:#5d7ba3; font-family:Consolas,ui-monospace,monospace;
                   padding:0 0 1px 2px }
 QLabel#titolo { font-size:11px; font-weight:700; letter-spacing:1.2px; color:#5d7ba3;
@@ -741,7 +743,7 @@ class Client : public QWidget
 public:
     Client()
     {
-        setWindowTitle(tr("Decolink — la radio su Decodium Mobile"));
+        setWindowTitle(QStringLiteral("Decolink — Decodium Stazione Remota"));
 
         m_device = new QComboBox;
         for (QAudioDevice const& d : QMediaDevices::audioInputs())
@@ -1109,6 +1111,12 @@ public:
         }
         connect(m_lingua, &QComboBox::activated, this, &Client::cambiaLingua);
 
+        // Il nome del sistema, sopra il logo: Decolink e' il programma, Decodium
+        // Stazione Remota e' quel che l'operatore sta usando. E' un nome proprio,
+        // quindi non si traduce.
+        auto* claim = new QLabel(QStringLiteral("DECODIUM STAZIONE REMOTA"));
+        claim->setObjectName(QStringLiteral("claim"));
+
         auto* barra = new QHBoxLayout;
         barra->addWidget(intestazione);
         barra->addWidget(versione);
@@ -1158,6 +1166,7 @@ public:
         auto* lay = new QVBoxLayout(this);
         lay->setContentsMargins(18, 14, 18, 14);
         lay->setSpacing(10);
+        lay->addWidget(claim);
         lay->addLayout(barra);
         lay->addLayout(authForm);
         lay->addLayout(colonne);
