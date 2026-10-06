@@ -156,10 +156,21 @@ seguito dal payload.
 | 5 / 6 | comando CAT e risposta | operatori ↔ gateway |
 | 7 | audio da trasmettere | un operatore per volta → gateway |
 | 8 | rifiuto, col motivo in chiaro | il relay |
+| 9 | stato del PTT: `tx free`, `tx you` o `tx busy <nominativo>` | il relay → ogni operatore |
 
 La v1 non è più accettata: chi si presenta con la vecchia versione riceve un
 rifiuto che glielo dice, invece di restare a bussare senza capire.
 
 Un solo gateway per stazione (una radio sola non può avere due sorgenti audio) e
-un solo trasmittente per volta: se due operatori premono il PTT insieme, passa il
-primo e il secondo viene ignorato finché il canale non si libera.
+un solo trasmittente per volta, come il PTT unico di MultiFLEX: se due operatori
+premono il PTT insieme, passa il primo.
+
+Il PTT vale anche per i comandi CAT. Il relay li divide in lettura (`f`, `m`,
+`s`, `get_*`…), scrittura (`F`, `M`, `w` e tutto ciò che non riconosce) e PTT
+(`T 1`, `T 0`). Finché un operatore ha il PTT, gli altri possono solo leggere:
+`T 1`, `T 0` e le scritture ricevono `RPRT -8` (v2 e v3) e la radio non sente
+niente. Il PTT è un affitto breve: se chi lo teneva sparisce, scade da solo
+(1,5 s senza audio, più 2,5 s di grazia dopo un `T 1` perché arrivi il primo
+pacchetto). Il flag 9 dice a ogni operatore chi ha il PTT, alla registrazione,
+a ogni cambio e ogni 5 s; il gateway non lo riceve e i client che non lo
+conoscono lo ignorano.

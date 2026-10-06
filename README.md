@@ -162,7 +162,8 @@ Apribile in Excel/LibreOffice per i grafici RTT/perdita.
 UDP, header 22 byte big-endian (`HFGW` v2: magic, versione, flags, seq,
 timestamp ms, sample rate) + payload PCM int16. Flags: AUDIO, PING/PONG,
 REGISTER (con il token di accesso), PEERUP, CAT richiesta/risposta, TX audio,
-DENIED (rifiuto motivato).
+DENIED (rifiuto motivato), TX_STATE (chi ha il PTT: `tx free` / `tx you` / `tx busy <nominativo>`;
+con un solo PTT per stazione gli altri operatori possono solo leggere, il resto torna `RPRT -8`).
 
 La **v1 non è più accettata**: bastava indovinare il nome di una stanza per
 entrare e trasmettere. I client vecchi ricevono un rifiuto che lo spiega e vanno
