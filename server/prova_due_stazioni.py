@@ -72,11 +72,15 @@ def manda(s, d):
 
 
 def leggi(s):
-    try:
-        d, _ = s.recvfrom(8192)
-        return d[5], d[22:]
-    except socket.timeout:
-        return None, b""
+    # Lo stato del PTT (flag 9) arriva da solo, anche ogni pochi secondi: non
+    # e' quel che queste prove cercano, quindi lo si salta.
+    while True:
+        try:
+            d, _ = s.recvfrom(8192)
+        except socket.timeout:
+            return None, b""
+        if d[5] != 9:
+            return d[5], d[22:]
 
 
 def svuota(*socks):

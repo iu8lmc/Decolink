@@ -322,8 +322,7 @@ class Relay:
         if self.gateway_di(dati["station_id"]) and len(membri) >= 2:
             for a in membri:
                 self.sock.sendto(hdr(F_PEERUP), a)
-        if not is_gw:
-            self.annuncia_tx(dati["station_id"], now, forza=True)
+        self.annuncia_tx(dati["station_id"], now, forza=True)
 
     def rifiuta(self, addr, motivo: str) -> None:
         """Dice al client perche' non entra.
@@ -434,7 +433,7 @@ class Relay:
         return True
 
     def annuncia_tx(self, station_id, now: float, forza: bool = False) -> None:
-        """Dice a ogni operatore della stanza chi ha il PTT, dal suo punto di vista."""
+        """Dice a ognuno nella stanza chi ha il PTT, dal suo punto di vista (al gateway, che non trasmette, solo libero o occupato)."""
         membri = self.rooms.get(station_id, ())
         titolare = self.titolare_tx(station_id, now)
         chiave = titolare.addr if titolare else None
@@ -444,7 +443,7 @@ class Relay:
         self.tx_annunciato[station_id] = (chiave, now)
         for a in membri:
             m = self.sess.get(a)
-            if not m or m.is_gw:
+            if not m:
                 continue
             if titolare is None:
                 testo = "tx free"

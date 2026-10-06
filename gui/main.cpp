@@ -99,7 +99,8 @@ constexpr quint8 kFlagAudio = 0, kFlagPing = 1, kFlagPong = 2,
                  kFlagRegister = 3, kFlagPeerUp = 4,
                  kFlagCatReq = 5, kFlagCatRsp = 6,   // comandi CAT sullo stesso canale
                  kFlagTxAudio = 7,                   // audio che il telefono vuole trasmettere
-                 kFlagDenied = 8;                    // il relay spiega perche' non si entra
+                 kFlagDenied = 8,                    // il relay spiega perche' non si entra
+                 kFlagTxState = 9;                   // chi ha il PTT: "tx free" / "tx busy <nominativo>"
 
 void putU32(char* p, quint32 v) { p[0]=char(v>>24); p[1]=char(v>>16); p[2]=char(v>>8); p[3]=char(v); }
 void putU64(char* p, quint64 v) { for (int i = 0; i < 8; ++i) p[i] = char(v >> (56 - 8*i)); }
@@ -887,6 +888,9 @@ public:
         m_status = new QLabel(tr("fermo"));
         m_status->setObjectName(QStringLiteral("stato"));
         m_status->setWordWrap(true);
+        m_ptt = new QLabel;
+        m_ptt->setObjectName(QStringLiteral("statoPtt"));
+        m_ptt->hide();
         m_stats  = new QLabel(tr("—"));
         m_stats->setObjectName(QStringLiteral("numeri"));
         m_stats->setWordWrap(true);
@@ -1161,6 +1165,7 @@ public:
         lay->addWidget(m_avanzate);
         lay->addLayout(comandi);
         lay->addWidget(m_status);
+        lay->addWidget(m_ptt);
         lay->addWidget(m_stats);
 
         // Le tendine non devono dettare la larghezza della finestra: si adattano
@@ -1764,6 +1769,21 @@ private slots:
                     setAuthState(motivo, true);
                     if (m_running) stop();
                 }
+                continue;
+            }
+            // Il relay dice chi ha il PTT della stazione: si mostra a chi sta
+            // davanti alla radio, che altrimenti vedrebbe solo il rig trasmettere.
+            if (flags == kFlagTxState) {
+                QString const stato = QString::fromUtf8(dg.mid(kHdrSize)).trimmed();
+                QString const busy = QStringLiteral("tx busy ");
+                if (stato.startsWith(busy)) {
+                    m_ptt->setText(tr("PTT: trasmette %1").arg(stato.mid(busy.size())));
+                    m_ptt->setStyleSheet(QStringLiteral("color:#c0392b;font-weight:bold;"));
+                } else {
+                    m_ptt->setText(tr("PTT: libero"));
+                    m_ptt->setStyleSheet(QString());
+                }
+                m_ptt->show();
                 continue;
             }
             if (flags == kFlagPeerUp) {
@@ -2398,6 +2418,7 @@ private:
         if (m_audio) { m_audio->stop(); m_audio->deleteLater(); m_audio = nullptr; m_audioIo = nullptr; }
         if (m_sock)  { m_sock->close(); m_sock->deleteLater(); m_sock = nullptr; }
         m_running = false; m_rms = 0;
+        m_ptt->hide();
         m_start->setText(tr("Avvia"));
         setFieldsEnabled(true);
         setStatus(tr("fermo"));
@@ -2550,7 +2571,7 @@ private:
     QPushButton* m_start;
     QProgressBar* m_level;
     dl::Misuratori* m_misure {nullptr};
-    QLabel *m_status, *m_stats;
+    QLabel *m_status, *m_stats, *m_ptt;
 
     // accesso al gateway
     QLineEdit *m_authHost, *m_email, *m_password;
