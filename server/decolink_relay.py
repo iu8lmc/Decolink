@@ -74,6 +74,7 @@ F_AUDIO, F_PING, F_PONG, F_REGISTER, F_PEERUP = 0, 1, 2, 3, 4
 F_CAT_REQ, F_CAT_RSP = 5, 6
 F_TX_AUDIO = 7
 F_DENIED = 8                  # nuovo in v2: "non entri, ed ecco perche'"
+F_TX_STATE = 9                # chi ha il PTT della stazione: "tx free" / "tx you" / "tx busy <nominativo>"
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SECRET_PATH = os.environ.get("DECOLINK_SECRET") or os.path.join(HERE, "decolink.key")
@@ -82,8 +83,41 @@ PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 5555
 CLIENT_TIMEOUT = 15.0         # s senza pacchetti -> sessione chiusa
 GRANT_REFRESH = 5.0           # s fra due riletture dei permessi dal database
 TX_IDLE = 1.5                 # s di silenzio dopo cui il PTT si considera mollato
+TX_GRACE = 2.5                # s concessi dopo un PTT perche' arrivi il primo audio
 ROOM_MAX = 8                  # partecipanti per stazione (1 gateway + ascoltatori)
 CAT_ROUTE_TTL = 10.0          # s per cui si ricorda chi ha fatto una domanda CAT
+TX_STATE_EVERY = 5.0          # s fra due ripetizioni dello stato del PTT (un datagramma puo' perdersi)
+RPRT_REJECTED = b"RPRT -8\n"  # rigctl: comando rifiutato dal rig
+
+
+# Comandi CAT che si limitano a leggere: non cambiano niente sulla radio e non
+# serve il PTT per farli. Tutto il resto, compresa la riga grezza ("w"), e'
+# trattato come scrittura: chi non e' sicuro non deve poter toccare la radio
+# mentre un altro trasmette.
+_CAT_LEGGE = {"f", "m", "t", "s", "i", "x", "v", "j", "u", "d", "l", "n", "q", "1",
+              "get_freq", "get_mode", "get_ptt", "get_split_vfo", "get_split_freq",
+              "get_split_mode", "get_vfo", "get_level", "get_info", "dump_state",
+              "chk_vfo", "get_rit", "get_xit", "get_powerstat", "get_dcd", "get_func",
+              "get_parm", "get_rig_info"}
+
+
+def classifica_cat(testo: str) -> str:
+    """'ptt_on', 'ptt_off', 'scrive' o 'legge' per una riga nel dialetto rigctl."""
+    riga = testo.strip().lstrip("+").strip()
+    if not riga:
+        return "legge"
+    primo, _, resto = riga.partition(" ")
+    lungo = primo.startswith("\\")
+    cmd = primo.lstrip("\\")
+    if cmd in ("T", "set_ptt"):
+        try:
+            return "ptt_on" if int(resto.split()[0]) != 0 else "ptt_off"
+        except (ValueError, IndexError):
+            return "scrive"
+    if len(cmd) == 1 and not lungo:
+        # i comandi corti distinguono le maiuscole: 'f' legge, 'F' scrive
+        return "legge" if cmd in _CAT_LEGGE else "scrive"
+    return "legge" if cmd.lower() in _CAT_LEGGE else "scrive"
 
 
 def hdr(flags, seq=0, tms=0, rate=48000):
@@ -132,6 +166,7 @@ class Relay:
         self.rooms: dict = {}         # station_id -> set(addr)
         self.tx_holder: dict = {}     # station_id -> addr che sta trasmettendo
         self.cat_route: dict = {}     # (station_id, seq) -> (addr, istante)
+        self.tx_annunciato: dict = {}  # station_id -> (addr del titolare o None, istante)
 
         self.grants = {}              # (user, stazione) -> ruolo, riletti dal DB
         self.revoked = set()
@@ -287,6 +322,8 @@ class Relay:
         if self.gateway_di(dati["station_id"]) and len(membri) >= 2:
             for a in membri:
                 self.sock.sendto(hdr(F_PEERUP), a)
+        if not is_gw:
+            self.annuncia_tx(dati["station_id"], now, forza=True)
 
     def rifiuta(self, addr, motivo: str) -> None:
         """Dice al client perche' non entra.
@@ -353,12 +390,77 @@ class Relay:
             except Exception as ex:
                 print(f"  [attenzione] trasmissione non registrata: {ex}")
             print(f"  TX {s.callsign} sulla stazione {s.station_id}")
+            s.tx_last = now
+            self.annuncia_tx(s.station_id, now)
         s.tx_last = now
         return True
+
+    def titolare_tx(self, station_id, now: float):
+        """Chi ha il PTT adesso: la sessione, o None se la stazione e' libera.
+
+        Il PTT e' un'affitto breve, non una proprieta': dura finche' arriva
+        audio (o fino al periodo di grazia dopo un PTT), e se chi lo teneva
+        sparisce senza lasciarlo, scade da solo.
+        """
+        addr = self.tx_holder.get(station_id)
+        s = self.sess.get(addr) if addr is not None else None
+        if s and now - s.tx_last < TX_IDLE:
+            return s
+        return None
+
+    def arbitra_cat(self, s: Sessione, testo: str, now: float) -> bool:
+        """Decide se un comando CAT di un operatore puo' arrivare alla radio.
+
+        E' il gemello di quel che fa MultiFLEX con la trasmissione: un solo
+        stadio di trasmissione, primo arrivato primo servito. Finche' uno
+        trasmette gli altri possono guardare (leggere frequenza, modo, S-meter)
+        ma non possono alzare il PTT, abbassarlo (gli staccherebbero la
+        portante) ne' cambiare frequenza o modo sotto i piedi di chi parla.
+        """
+        genere = classifica_cat(testo)
+        if genere == "legge":
+            return True
+        altro = self.titolare_tx(s.station_id, now)
+        if altro is not None and altro.addr == s.addr:
+            altro = None
+        if genere == "ptt_on":
+            if not self.inizio_tx(s, now):
+                return False
+            # il primo audio arriva dopo l'anticipo dichiarato: si concede un po'
+            s.tx_last = now + TX_GRACE
+            return True
+        if altro is not None:
+            return False
+        return True
+
+    def annuncia_tx(self, station_id, now: float, forza: bool = False) -> None:
+        """Dice a ogni operatore della stanza chi ha il PTT, dal suo punto di vista."""
+        membri = self.rooms.get(station_id, ())
+        titolare = self.titolare_tx(station_id, now)
+        chiave = titolare.addr if titolare else None
+        ultimo = self.tx_annunciato.get(station_id)
+        if not forza and ultimo is not None and ultimo[0] == chiave:
+            return
+        self.tx_annunciato[station_id] = (chiave, now)
+        for a in membri:
+            m = self.sess.get(a)
+            if not m or m.is_gw:
+                continue
+            if titolare is None:
+                testo = "tx free"
+            elif titolare.addr == a:
+                testo = "tx you"
+            else:
+                testo = f"tx busy {titolare.callsign}"
+            try:
+                self.sock.sendto(pkt(F_TX_STATE, testo), a)
+            except OSError:
+                pass
 
     def fine_tx(self, s: Sessione, now: float) -> None:
         if self.tx_holder.get(s.station_id) == s.addr:
             del self.tx_holder[s.station_id]
+            self.annuncia_tx(s.station_id, now)
         if s.tx_row:
             try:
                 db.log_tx_end(self.db, s.tx_row)
@@ -411,10 +513,20 @@ class Relay:
                 return
             if tipo == V3_AUDIO_TX and not self.inizio_tx(s, now):
                 return
+            testo_cat = ""
+            if tipo == V3_CAT:
+                testo_cat = data[V3_HDR:].decode("latin-1", "ignore")
+                if not self.arbitra_cat(s, testo_cat, now):
+                    print(f"  x {s} rifiutato per PTT occupato: {testo_cat.strip()[:24]}")
+                    self.sock.sendto(data[:V3_HDR] + RPRT_REJECTED, s.addr)
+                    self.rej += 1
+                    return
             if tipo in (V3_CAT, V3_NACK):
                 self.cat_route[(s.station_id, seq)] = (s.addr, now)
             self.sock.sendto(data, gw.addr)
             self.fwd += 1
+            if tipo == V3_CAT and classifica_cat(testo_cat) == "ptt_off":
+                self.fine_tx(s, now)
             return
 
         if tipo == V3_CTRL:
@@ -462,12 +574,21 @@ class Relay:
             if flags == F_TX_AUDIO and not self.inizio_tx(s, now):
                 return                       # il PTT ce l'ha un altro
             if flags == F_CAT_REQ:
+                testo = data[HDR.size:].decode("latin-1", "ignore")
+                if not self.arbitra_cat(s, testo, now):
+                    # rifiutato: lo si dice a chi ha chiesto, la radio non sente niente
+                    print(f"  x {s} rifiutato per PTT occupato: {testo.strip()[:24]}")
+                    self.sock.sendto(hdr(F_CAT_RSP, seq) + RPRT_REJECTED, s.addr)
+                    self.rej += 1
+                    return
                 # Si ricorda chi ha chiesto, per far tornare la risposta a lui
                 # solo: con piu' operatori collegati, spedirla a tutti
                 # significherebbe rispondere a domande che non hanno fatto.
                 self.cat_route[(s.station_id, seq)] = (s.addr, now)
             self.sock.sendto(data, gw.addr)
             self.fwd += 1
+            if flags == F_CAT_REQ and classifica_cat(data[HDR.size:].decode("latin-1", "ignore")) == "ptt_off":
+                self.fine_tx(s, now)         # chi lo teneva lo ha lasciato
             return
 
         if flags == F_CAT_RSP:
@@ -497,6 +618,12 @@ class Relay:
                 self.espelli(addr, "token scaduto, rinnovalo")
             elif s.tx_row and now - s.tx_last > TX_IDLE:
                 self.fine_tx(s, now)
+        for sid in list(self.rooms):
+            ultimo = self.tx_annunciato.get(sid)
+            if ultimo is None or now - ultimo[1] >= TX_STATE_EVERY:
+                self.annuncia_tx(sid, now, forza=True)
+            else:
+                self.annuncia_tx(sid, now)       # cambia solo se il PTT e' scaduto da solo
         for chiave, (_, quando) in list(self.cat_route.items()):
             if now - quando > CAT_ROUTE_TTL:
                 del self.cat_route[chiave]
