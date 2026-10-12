@@ -346,42 +346,34 @@ public:
 #endif
     }
 
-    // I tre misuratori come numeri, per il widget che li disegna. Un valore
-    // negativo vuol dire «non lo so»: la radio non lo espone, o non sta
-    // trasmettendo. Va tenuto distinto da zero, che su un rosmetro vorrebbe
-    // dire antenna perfetta.
-    void misureNumeriche(double& watt, double& ros, double& alc)
+    // I tre misuratori, in una sola passata: il testo per la finestra e i numeri
+    // per il widget e per il telefono. Ogni lettura e' una domanda alla radio, e
+    // in rete e' un giro di Hamlib; chiederle due volte, come si faceva prima,
+    // significava fermare l'interfaccia per il doppio del tempo a ogni giro.
+    // Un valore negativo vuol dire «non lo so»: la radio non lo espone, o non sta
+    // trasmettendo. Va tenuto distinto da zero, che su un rosmetro vorrebbe dire
+    // antenna perfetta. A riposo non si chiede niente.
+    QString misure(double& watt, double& ros, double& alc)
     {
         watt = ros = alc = -1;
-#ifdef DECOLINK_CON_HAMLIB
-        if (!m_usaHamlib || !inTx()) return;
-        float v = 0.0f;
-        if (m_ham.livello(RIG_LEVEL_RFPOWER_METER_WATTS, v) && v > 0.0f) watt = double(v);
-        if (m_ham.livello(RIG_LEVEL_SWR, v) && v >= 1.0f) ros = double(v);
-        if (m_ham.livello(RIG_LEVEL_ALC, v)) alc = double(v) * 100.0;
-#endif
-    }
-
-    // ALC, ROS e potenza in una riga, per la finestra di Decolink. Sono le
-    // stesse misure che vanno al telefono; vederle anche qui dice che la
-    // lettura funziona senza dover guardare l'altro apparecchio.
-    //
-    // Solo mentre la radio trasmette: a riposo un rosmetro non misura niente, e
-    // tre zeri fanno pensare a un guasto invece che a una radio che ascolta.
-    QString misuratori()
-    {
 #ifdef DECOLINK_CON_HAMLIB
         if (!m_usaHamlib || !inTx()) return QString();
         QStringList pezzi;
         float v = 0.0f;
-        if (m_ham.livello(RIG_LEVEL_RFPOWER_METER_WATTS, v) && v > 0.0f)
-            pezzi << QStringLiteral("%1 W").arg(double(v), 0, 'f', 0);
-        else if (m_ham.livello(RIG_LEVEL_RFPOWER_METER, v))
+        if (m_ham.livello(RIG_LEVEL_RFPOWER_METER_WATTS, v) && v > 0.0f) {
+            watt = double(v);
+            pezzi << QStringLiteral("%1 W").arg(watt, 0, 'f', 0);
+        } else if (m_ham.livello(RIG_LEVEL_RFPOWER_METER, v)) {
             pezzi << QStringLiteral("pot %1%").arg(double(v) * 100.0, 0, 'f', 0);
-        if (m_ham.livello(RIG_LEVEL_SWR, v) && v >= 1.0f)
-            pezzi << QStringLiteral("ROS %1").arg(double(v), 0, 'f', 1);
-        if (m_ham.livello(RIG_LEVEL_ALC, v))
-            pezzi << QStringLiteral("ALC %1%").arg(double(v) * 100.0, 0, 'f', 0);
+        }
+        if (m_ham.livello(RIG_LEVEL_SWR, v) && v >= 1.0f) {
+            ros = double(v);
+            pezzi << QStringLiteral("ROS %1").arg(ros, 0, 'f', 1);
+        }
+        if (m_ham.livello(RIG_LEVEL_ALC, v)) {
+            alc = double(v) * 100.0;
+            pezzi << QStringLiteral("ALC %1%").arg(alc, 0, 'f', 0);
+        }
         return pezzi.join(QLatin1String("  "));
 #else
         return QString();
@@ -1657,8 +1649,11 @@ private slots:
     void refreshCatState()
     {
         if (!m_rig.isOpen()) return;
+        QElapsedTimer giro; giro.start();
         qint64 const hz = m_rig.readFreq();
         QString const md = m_rig.readMode();
+        // Il modo della radio sceglie il profilo, come fa il telefono.
+        if (!md.isEmpty() && md != m_modoVisto) { m_modoVisto = md; segueModo(md); }
         if (hz > 0) {
             m_catMuti = 0;
             QString riga = tr("rig: %1 MHz  %2   (TCP %3, e sul canale audio)")
@@ -1666,17 +1661,19 @@ private slots:
             // Mentre si trasmette si aggiungono i misuratori, se la radio li ha:
             // sono la stessa cosa che va al telefono, e vederli qui dice che la
             // lettura funziona senza dover guardare l'altro apparecchio.
-            QString const mis = m_rig.misuratori();
-            if (!mis.isEmpty()) riga += QLatin1String("   ") + mis;
             double w = -1, r = -1, a = -1;
-            m_rig.misureNumeriche(w, r, a);
+            QString const mis = m_rig.misure(w, r, a);
+            if (!mis.isEmpty()) riga += QLatin1String("   ") + mis;
             m_misure->aggiorna(w, r, a);
             // Mentre si trasmette il misuratore si guarda: due secondi fra una
             // lettura e l'altra vorrebbero dire sette valori in un passaggio
             // FT8, e accorgersi di un ROS alto quando e' finito. A riposo si
             // torna al passo lento, che non c'e' niente da seguire.
             bool const inAria = (w >= 0 || r >= 0 || a >= 0);
-            int const passo = inAria ? 400 : 2000;
+            // Se la radio impiega molto a rispondere, il giro successivo parte
+            // quando questo e' finito: allungare il passo dà respiro all'interfaccia
+            // invece di impilare richieste che arrivano in ritardo.
+            int const passo = qBound(inAria ? 400 : 2000, int(giro.elapsed()) * 3, 5000);
             if (m_catPoll.interval() != passo) m_catPoll.setInterval(passo);
             m_catState->setText(riga);
             return;
@@ -1901,6 +1898,7 @@ private slots:
             // il risparmio, non il collegamento.
             quint8 const cap = corpo.size() >= 2 ? quint8(corpo.at(1)) : 0;
             m_peerHaParlato = true;      // dall'altra parte c'e' un client v3
+            segueModo(m_modoVisto);      // ora che qualcuno ascolta, il modo conta
             bool const prima = m_peerSaAggr;
             m_peerSaAggr = (cap & dl::CapAggr) != 0;
             if (m_peerSaAggr != prima) {
@@ -2320,6 +2318,27 @@ private:
 
     void setStatus(const QString& s) { m_status->setText(s); }
 
+    // Sceglie il profilo dal modo della radio: CW in Opus CW, fonia in Opus voce,
+    // digitali in PCM. Sono tutti profili che l'offerta al telefono gia' elenca,
+    // quindi non si manda mai un formato che il telefono non ha dichiarato. DIGI
+    // e CW a tasto non sono in offerta: finche' il telefono non li dichiara il
+    // digitale resta PCM. Non si fa niente senza un client v3 collegato, perche'
+    // un client vecchio legge solo il PCM e Opus gli sarebbe rumore.
+    void segueModo(const QString& md)
+    {
+        if (md.isEmpty() || !m_peerHaParlato) return;
+        quint8 voluto = 0;
+        if (md == QLatin1String("CW") || md == QLatin1String("CWR")) voluto = dl::PCw;
+        else if (md == QLatin1String("LSB") || md == QLatin1String("USB")
+                 || md == QLatin1String("AM") || md == QLatin1String("FM")) voluto = dl::PVoce;
+        else if (md == QLatin1String("PKTUSB") || md == QLatin1String("PKTLSB")
+                 || md == QLatin1String("PKTFM") || md == QLatin1String("RTTY")
+                 || md == QLatin1String("RTTYR")) voluto = dl::PPcm48;
+        else return;                       // modo che non sappiamo classificare: non si tocca
+        int const idx = m_profile->findData(voluto);
+        if (idx >= 0 && idx != m_profile->currentIndex()) m_profile->setCurrentIndex(idx);
+    }
+
     // Prepara i codec per il profilo scelto. Due istanze separate, una per
     // verso: la radio manda con la banda del profilo, il telefono puo' mandare
     // con la sua, e non devono pestarsi lo stato.
@@ -2648,6 +2667,7 @@ private:
     // raggruppati, e lo si scopre dal suo HELLO: meglio consumare piu' banda che
     // mandare a un client vecchio un formato che non capisce.
     bool m_peerSaAggr {false};
+    QString m_modoVisto;            // ultimo modo letto dalla radio, per cambiare profilo solo al cambio
     // Se dall'altra parte non si e' mai fatto vivo nessuno con la v3, mandare un
     // profilo compresso e' mandare audio nel vuoto: l'interfaccia deve dirlo,
     // altrimenti si vede la barra del livello muoversi e si pensa che vada tutto
