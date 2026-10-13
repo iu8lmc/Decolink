@@ -1,0 +1,40 @@
+[package]
+name = "decolink-rs"
+version = "0.1.0"
+edition = "2021"
+description = "Decolink: motore in Rust (protocollo v3, codec, CAT e relay)"
+build = "build.rs"
+
+[features]
+relay = ["dep:rusqlite", "dep:hmac", "dep:sha2", "dep:base64", "dep:getrandom", "dep:serde_json"]
+login = ["dep:ureq", "dep:serde_json"]
+# Audio di ingresso e uscita con cpal (WASAPI su Windows).
+audio = ["dep:cpal"]
+# Radio via Hamlib (libhamlib di MSYS2).
+hamlib = []
+# Collega libopus (MSYS2, mingw64). Senza la feature il crate compila senza librerie native.
+opus = []
+
+[dependencies]
+base64 = { version = "0.22", optional = true }
+cpal = { version = "0.15", optional = true }
+getrandom = { version = "0.2", optional = true }
+hmac = { version = "0.12", optional = true }
+rusqlite = { version = "0.32", features = ["bundled"], optional = true }
+serde_json = { version = "1", optional = true }
+sha2 = { version = "0.10", optional = true }
+ureq = { version = "2", optional = true }
+
+[[example]]
+name = "ascolta"
+required-features = ["audio"]
+
+[[bin]]
+name = "decolink"
+path = "src/bin/decolink.rs"
+required-features = ["audio", "opus", "hamlib", "login"]
+
+[[bin]]
+name = "decolink-relay"
+path = "src/bin/decolink_relay.rs"
+required-features = ["relay"]

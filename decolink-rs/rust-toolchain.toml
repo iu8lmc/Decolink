@@ -1,0 +1,4 @@
+[toolchain]
+# GNU e non MSVC: libopus e libhamlib in MSYS2 sono librerie MinGW, e la GUI
+# Decolink in C++ si compila con MinGW. Stesso compilatore, stesse librerie.
+channel = "stable-x86_64-pc-windows-gnu"
